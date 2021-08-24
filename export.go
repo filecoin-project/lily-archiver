@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -210,12 +211,15 @@ func tasksForManifest(em *ExportManifest) []string {
 
 // walkForManifest creates a walk configuration for the given manifest
 func walkForManifest(em *ExportManifest) (*lily.LilyWalkConfig, error) {
-	walkName := fmt.Sprintf("exp%s-%d-%d", time.Now().UTC().Format("0102"), em.Period.StartHeight, em.Period.EndHeight)
+	walkName, err := unusedWalkName(storageConfig.path, fmt.Sprintf("%d-%d", em.Period.StartHeight, em.Period.EndHeight))
+	if err != nil {
+		return nil, fmt.Errorf("walk name: %w", err)
+	}
 
 	return &lily.LilyWalkConfig{
 		Name:                walkName,
 		Tasks:               tasksForManifest(em),
-		Window:              300 * time.Second,
+		Window:              0, // no time out
 		From:                em.Period.StartHeight,
 		To:                  em.Period.EndHeight,
 		RestartDelay:        0,
@@ -223,4 +227,22 @@ func walkForManifest(em *ExportManifest) (*lily.LilyWalkConfig, error) {
 		RestartOnFailure:    false,
 		Storage:             storageConfig.name,
 	}, nil
+}
+
+func unusedWalkName(path, suffix string) (string, error) {
+	walkName := fmt.Sprintf("arch%s-%s", time.Now().UTC().Format("0102"), suffix)
+	for i := 0; i < 500; i++ {
+		fname := consensusChainFile(path, walkName)
+		_, err := os.Stat(fname)
+		if errors.Is(err, os.ErrNotExist) {
+			return walkName, nil
+		}
+		walkName = fmt.Sprintf("arch%s-%d-%s", time.Now().UTC().Format("0102"), rand.Intn(10000), suffix)
+	}
+
+	return "", fmt.Errorf("failed to find unusued walk name in a reasonable time")
+}
+
+func consensusChainFile(path, prefix string) string {
+	return filepath.Join(fmt.Sprintf("%s-chain_consensus.csv", prefix))
 }

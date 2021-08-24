@@ -68,7 +68,7 @@ var VerifyCmd = &cli.Command{
 }
 
 func verifyTables(path string, prefix string, tasks []string) (*VerificationReport, error) {
-	consensusPath := filepath.Join(path, fmt.Sprintf("%s-chain_consensus.csv", prefix))
+	consensusPath := consensusChainFile(path, prefix)
 	consensusFile, err := os.Open(consensusPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open consensus export: %w", err)
