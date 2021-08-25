@@ -151,21 +151,41 @@ var VerifyCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("verify task: %w", err)
 		}
-		for task, status := range rep.TaskStatus {
-			ll := logger.With("task", task)
+
+		reportFailed := false
+		for _, table := range tables {
+			t, _ := TablesByName[table]
+			status, ok := rep.TaskStatus[t.Task]
+			if !ok {
+				fmt.Printf("%s: verification failed, no further information\n", table)
+				reportFailed = true
+				continue
+			}
+
+			if len(status.Missing) == 0 && len(status.Error) == 0 && len(status.Unexpected) == 0 {
+				fmt.Printf("%s: verified ok\n", table)
+				continue
+			}
 			rs := ranges(status.Missing)
 			for _, r := range rs {
-				ll.Infof("found gap from %d to %d", r.Lower, r.Upper)
+				fmt.Printf("%s: found gap from %d to %d", table, r.Lower, r.Upper)
+				reportFailed = true
 			}
 
 			if len(status.Error) > 0 {
-				ll.Infof("found %d errors", len(status.Error))
+				fmt.Printf("%s: found %d errors", table, len(status.Error))
+				reportFailed = true
 			}
 			if len(status.Unexpected) > 0 {
-				ll.Infof("found %d unexpected processing reports", len(status.Unexpected))
+				fmt.Printf("%s: found %d unexpected processing reports", table, len(status.Unexpected))
+				reportFailed = true
 			}
+
 		}
 
+		if reportFailed {
+			return fmt.Errorf("one or more verification failures found")
+		}
 		return nil
 	},
 }
