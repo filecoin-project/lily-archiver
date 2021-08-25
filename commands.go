@@ -163,21 +163,21 @@ var VerifyCmd = &cli.Command{
 			}
 
 			if len(status.Missing) == 0 && len(status.Error) == 0 && len(status.Unexpected) == 0 {
-				fmt.Printf("%s: verified ok\n", table)
+				fmt.Printf("%s: ok\n", table)
 				continue
 			}
 			rs := ranges(status.Missing)
 			for _, r := range rs {
-				fmt.Printf("%s: found gap from %d to %d", table, r.Lower, r.Upper)
+				fmt.Printf("%s: found gap from %d to %d\n", table, r.Lower, r.Upper)
 				reportFailed = true
 			}
 
 			if len(status.Error) > 0 {
-				fmt.Printf("%s: found %d errors", table, len(status.Error))
+				fmt.Printf("%s: found %d errors\n", table, len(status.Error))
 				reportFailed = true
 			}
 			if len(status.Unexpected) > 0 {
-				fmt.Printf("%s: found %d unexpected processing reports", table, len(status.Unexpected))
+				fmt.Printf("%s: found %d unexpected processing reports\n", table, len(status.Unexpected))
 				reportFailed = true
 			}
 

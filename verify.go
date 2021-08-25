@@ -108,7 +108,7 @@ func verifyTasks(exportPath string, prefix string, tasks []string) (*Verificatio
 		} else {
 			if alreadySeen {
 				// TODO: record this so it can be cleaned up?
-				ll.Infof("duplicate data found found for height %d", height)
+				ll.Debugf("duplicate data found found for height %d", height)
 			}
 			info.seen[height] = true
 
