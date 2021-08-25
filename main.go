@@ -29,6 +29,7 @@ func main() {
 			RunCmd,
 			ScanCmd,
 			VerifyCmd,
+			ShipCmd,
 		},
 	}
 

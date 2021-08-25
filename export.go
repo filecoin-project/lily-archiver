@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/filecoin-project/sentinel-visor/commands"
 	"github.com/filecoin-project/sentinel-visor/lens/lily"
+	"github.com/filecoin-project/sentinel-visor/schedule"
 )
 
 type Table struct {
@@ -229,10 +233,10 @@ func walkForManifest(em *ExportManifest) (*lily.LilyWalkConfig, error) {
 	}, nil
 }
 
-func unusedWalkName(path, suffix string) (string, error) {
+func unusedWalkName(exportPath, suffix string) (string, error) {
 	walkName := fmt.Sprintf("arch%s-%s", time.Now().UTC().Format("0102"), suffix)
 	for i := 0; i < 500; i++ {
-		fname := consensusChainFile(path, walkName)
+		fname := exportFilePath(exportPath, walkName, "chain_consensus")
 		_, err := os.Stat(fname)
 		if errors.Is(err, os.ErrNotExist) {
 			return walkName, nil
@@ -243,6 +247,98 @@ func unusedWalkName(path, suffix string) (string, error) {
 	return "", fmt.Errorf("failed to find unusued walk name in a reasonable time")
 }
 
-func consensusChainFile(path, prefix string) string {
-	return filepath.Join(fmt.Sprintf("%s-chain_consensus.csv", prefix))
+// exportFilePath returns the full path to an export file
+func exportFilePath(exportPath, prefix, name string) string {
+	return filepath.Join(exportPath, fmt.Sprintf("%s-%s.csv", prefix, name))
+}
+
+func processExport(ctx context.Context, em *ExportManifest) error {
+	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
+
+	if len(em.Files) == 0 {
+		ll.Info("found all expected files, nothing to do")
+		return nil
+	}
+
+	ll.Infof("export period is missing %d files", len(em.Files))
+
+	// We must wait for one full finality after the end of the period before running the export
+	earliestStartTs := HeightToUnix(em.Period.EndHeight+Finality, networkConfig.genesisTs)
+	ll.Infof("earliest time this export can start: %d (%s)", earliestStartTs, time.Unix(earliestStartTs, 0))
+
+	// TODO: wait until earliest export time
+
+	// TODO: run tasks other than blocks+chaineconomics with an extra height
+	// TODO: always run consensus task
+	walkCfg, err := walkForManifest(em)
+	if err != nil {
+		return fmt.Errorf("build walk for yesterday: %w", err)
+	}
+	ll.Infof("using tasks %s", strings.Join(walkCfg.Tasks, ","))
+
+	api, closer, err := commands.GetAPI(ctx, lilyConfig.apiAddr, lilyConfig.apiToken)
+	if err != nil {
+		return fmt.Errorf("could not access lily api: %w", err)
+	}
+	defer closer()
+
+	// TODO: don't start the walk if we have raw exports and they have no execution errors
+
+	jobID, err := api.LilyWalk(ctx, walkCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create walk: %w", err)
+	}
+
+	ll.Infof("started walk %s with id %d", walkCfg.Name, jobID)
+
+	if err := WaitUntil(ctx, jobHasEnded(api, jobID), time.Minute*5); err != nil {
+		return fmt.Errorf("failed waiting for job to finish: %w", err)
+	}
+
+	jr, err := getJobResult(ctx, api, jobID)
+	if err != nil {
+		return fmt.Errorf("failed reading job result: %w", err)
+	}
+
+	if jr.Error != "" {
+		// TODO: retry
+		return fmt.Errorf("job failed with error: %s", jr.Error)
+	}
+
+	ll.Info("export complete")
+
+	// TODO: use processing report to look for execution errors
+
+	// TODO: compress and copy file to correct location
+
+	return nil
+}
+
+func jobHasEnded(api lily.LilyAPI, id schedule.JobID) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		jr, err := getJobResult(ctx, api, id)
+		if err != nil {
+			return false, err
+		}
+
+		if jr.Running {
+			return false, nil
+		}
+		return true, nil
+	}
+}
+
+func getJobResult(ctx context.Context, api lily.LilyAPI, id schedule.JobID) (*schedule.JobResult, error) {
+	jobs, err := api.LilyJobList(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list jobs: %w", err)
+	}
+
+	for _, jr := range jobs {
+		if jr.ID == id {
+			return &jr, nil
+		}
+	}
+
+	return nil, fmt.Errorf("job %d not found", id)
 }

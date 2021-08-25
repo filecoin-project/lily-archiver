@@ -11,64 +11,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/urfave/cli/v2"
-
 	"github.com/filecoin-project/sentinel-visor/model/visor"
 )
 
-var verifyConfig struct {
-	table string
-	name  string
-}
-
-var VerifyCmd = &cli.Command{
-	Name:   "verify",
-	Usage:  "Verify raw export files.",
-	Before: configure,
-	Flags: flagSet(
-		loggingFlags,
-		networkFlags,
-		storageFlags,
-		[]cli.Flag{
-			&cli.StringFlag{
-				Name:        "table",
-				Usage:       "Table to verify.",
-				Value:       "messages",
-				Destination: &verifyConfig.table,
-			},
-			&cli.StringFlag{
-				Name:        "name",
-				Usage:       "Name of the export.",
-				Value:       "export-1005360-1008239",
-				Destination: &verifyConfig.name,
-			},
-		},
-	),
-	Action: func(cc *cli.Context) error {
-		table := TablesByName[verifyConfig.table]
-		rep, err := verifyTables(storageConfig.path, verifyConfig.name, []string{table.Task, "blocks", "actorstatesminer"})
-
-		for task, status := range rep.TaskStatus {
-			ll := logger.With("task", task)
-			rs := ranges(status.Missing)
-			for _, r := range rs {
-				ll.Infof("found gap from %d to %d", r.Lower, r.Upper)
-			}
-
-			if len(status.Error) > 0 {
-				ll.Infof("found %d errors", len(status.Error))
-			}
-			if len(status.Unexpected) > 0 {
-				ll.Infof("found %d unexpected processing reports", len(status.Unexpected))
-			}
-		}
-
-		return err
-	},
-}
-
-func verifyTables(path string, prefix string, tasks []string) (*VerificationReport, error) {
-	consensusPath := consensusChainFile(path, prefix)
+func verifyTables(exportPath string, prefix string, tasks []string) (*VerificationReport, error) {
+	consensusPath := exportFilePath(exportPath, prefix, "chain_consensus")
 	consensusFile, err := os.Open(consensusPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open consensus export: %w", err)
@@ -100,8 +47,6 @@ func verifyTables(path string, prefix string, tasks []string) (*VerificationRepo
 			blocks = strings.Split(row[3][1:len(row[3])-1], ",")
 		}
 		heights[height] = blocks
-
-		// logger.Infof("height %d, blocks %v", height, blocks)
 	}
 	logger.Infof("expecting %d heights", len(heights))
 
@@ -123,7 +68,7 @@ func verifyTables(path string, prefix string, tasks []string) (*VerificationRepo
 		taskInfos[task] = info
 	}
 
-	reportsPath := filepath.Join(path, fmt.Sprintf("%s-visor_processing_reports.csv", prefix))
+	reportsPath := filepath.Join(exportPath, fmt.Sprintf("%s-visor_processing_reports.csv", prefix))
 	reportsFile, err := os.Open(reportsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open processing reports: %w", err)
