@@ -14,7 +14,7 @@ import (
 	"github.com/filecoin-project/sentinel-visor/model/visor"
 )
 
-func verifyTables(exportPath string, prefix string, tasks []string) (*VerificationReport, error) {
+func verifyTasks(exportPath string, prefix string, tasks []string) (*VerificationReport, error) {
 	consensusPath := exportFilePath(exportPath, prefix, "chain_consensus")
 	consensusFile, err := os.Open(consensusPath)
 	if err != nil {
