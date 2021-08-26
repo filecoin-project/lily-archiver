@@ -44,6 +44,18 @@ func DateFromTime(dt time.Time) Date {
 	}
 }
 
+func DateFromString(s string) (Date, error) {
+	dt, err := time.ParseInLocation("2006-01-02", s, time.UTC)
+	if err != nil {
+		return Date{}, err
+	}
+	return Date{
+		Year:  dt.Year(),
+		Month: int(dt.Month()),
+		Day:   dt.Day(),
+	}, nil
+}
+
 func Today() Date {
 	return DateFromTime(time.Now())
 }

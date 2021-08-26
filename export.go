@@ -215,7 +215,7 @@ func tasksForManifest(em *ExportManifest) []string {
 
 // walkForManifest creates a walk configuration for the given manifest
 func walkForManifest(em *ExportManifest) (*lily.LilyWalkConfig, error) {
-	walkName, err := unusedWalkName(storageConfig.path, fmt.Sprintf("%d-%d", em.Period.StartHeight, em.Period.EndHeight))
+	walkName, err := unusedWalkName(storageConfig.path, em.Period.Date.String())
 	if err != nil {
 		return nil, fmt.Errorf("walk name: %w", err)
 	}
@@ -236,7 +236,7 @@ func walkForManifest(em *ExportManifest) (*lily.LilyWalkConfig, error) {
 func unusedWalkName(exportPath, suffix string) (string, error) {
 	walkName := fmt.Sprintf("arch%s-%s", time.Now().UTC().Format("0102"), suffix)
 	for i := 0; i < 500; i++ {
-		fname := exportFilePath(exportPath, walkName, "chain_consensus")
+		fname := exportFilePath(exportPath, walkName, "visor_processing_reports")
 		_, err := os.Stat(fname)
 		if errors.Is(err, os.ErrNotExist) {
 			return walkName, nil
@@ -252,7 +252,7 @@ func exportFilePath(exportPath, prefix, name string) string {
 	return filepath.Join(exportPath, fmt.Sprintf("%s-%s.csv", prefix, name))
 }
 
-func processExport(ctx context.Context, em *ExportManifest) error {
+func processExport(ctx context.Context, em *ExportManifest, outputPath string, p *Peer) error {
 	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 
 	if len(em.Files) == 0 {
@@ -268,7 +268,6 @@ func processExport(ctx context.Context, em *ExportManifest) error {
 
 	// TODO: wait until earliest export time
 
-	// TODO: run tasks other than blocks+chaineconomics with an extra height
 	// TODO: always run consensus task
 	walkCfg, err := walkForManifest(em)
 	if err != nil {
@@ -307,9 +306,22 @@ func processExport(ctx context.Context, em *ExportManifest) error {
 
 	ll.Info("export complete")
 
-	// TODO: use processing report to look for execution errors
+	wi := WalkInfo{
+		Name:   walkCfg.Name,
+		Path:   storageConfig.path,
+		Format: "csv",
+	}
 
-	// TODO: compress and copy file to correct location
+	// TODO: use processing report to look for execution errors
+	_, err = verifyExport(ctx, em, wi, outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to verify export files: %w", err)
+	}
+
+	err = shipExport(ctx, em, wi, outputPath, p)
+	if err != nil {
+		return fmt.Errorf("failed to ship export files: %w", err)
+	}
 
 	return nil
 }
@@ -341,4 +353,15 @@ func getJobResult(ctx context.Context, api lily.LilyAPI, id schedule.JobID) (*sc
 	}
 
 	return nil, fmt.Errorf("job %d not found", id)
+}
+
+type WalkInfo struct {
+	Name   string // name of walk
+	Path   string // storage output path
+	Format string // usually csv
+}
+
+// WalkFile returns the path to the file that the walk would write for the given table
+func (w *WalkInfo) WalkFile(table string) string {
+	return filepath.Join(w.Path, fmt.Sprintf("%s-%s.%s", w.Name, table, w.Format))
 }

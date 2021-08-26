@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,8 +14,26 @@ import (
 	"github.com/filecoin-project/sentinel-visor/model/visor"
 )
 
-func verifyTasks(exportPath string, prefix string, tasks []string) (*VerificationReport, error) {
-	consensusPath := exportFilePath(exportPath, prefix, "chain_consensus")
+func verifyExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string) (*VerificationReport, error) {
+	tasks := make(map[string]struct{}, 0)
+	for _, ef := range em.Files {
+		t, ok := TablesByName[ef.TableName]
+		if !ok {
+			return nil, fmt.Errorf("unknown table %q", ef.TableName)
+		}
+		tasks[t.Task] = struct{}{}
+	}
+
+	tasklist := make([]string, 0, len(tasks))
+	for task := range tasks {
+		tasklist = append(tasklist, task)
+	}
+
+	return verifyTasks(wi, tasklist)
+}
+
+func verifyTasks(wi WalkInfo, tasks []string) (*VerificationReport, error) {
+	consensusPath := wi.WalkFile("chain_consensus")
 	consensusFile, err := os.Open(consensusPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open consensus export: %w", err)
@@ -68,7 +86,7 @@ func verifyTasks(exportPath string, prefix string, tasks []string) (*Verificatio
 		taskInfos[task] = info
 	}
 
-	reportsPath := filepath.Join(exportPath, fmt.Sprintf("%s-visor_processing_reports.csv", prefix))
+	reportsPath := wi.WalkFile("visor_processing_reports")
 	reportsFile, err := os.Open(reportsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open processing reports: %w", err)
