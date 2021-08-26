@@ -335,7 +335,7 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 
 	ll.Infof("started walk %s with id %d", walkCfg.Name, jobID)
 
-	if err := WaitUntil(ctx, jobHasEnded(api, jobID), time.Minute*5); err != nil {
+	if err := WaitUntil(ctx, jobHasEnded(api, jobID), time.Second*30); err != nil {
 		return fmt.Errorf("failed waiting for job to finish: %w", err)
 	}
 
