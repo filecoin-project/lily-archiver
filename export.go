@@ -312,6 +312,9 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 	ll.Infof("earliest time this export can start: %d (%s)", earliestStartTs, time.Unix(earliestStartTs, 0))
 
 	// TODO: wait until earliest export time
+	if err := WaitUntil(ctx, timeIsAfter(earliestStartTs), time.Second*30); err != nil {
+		return fmt.Errorf("failed waiting for earliest export time: %w", err)
+	}
 
 	// TODO: always run consensus task
 	walkCfg, err := walkForManifest(em)
@@ -382,6 +385,13 @@ func jobHasEnded(api lily.LilyAPI, id schedule.JobID) func(context.Context) (boo
 			return false, nil
 		}
 		return true, nil
+	}
+}
+
+func timeIsAfter(targetTs int64) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		nowTs := time.Now().Unix()
+		return nowTs > targetTs, nil
 	}
 }
 
