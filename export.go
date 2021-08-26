@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -69,11 +70,15 @@ var (
 
 	// TablesBySchema maps a schema version to a list of tables present in that schema.
 	TablesBySchema = map[int][]Table{}
+
+	// TablesByTask maps a task name to a list of tables that are produced by that task.
+	TablesByTask = map[string][]Table{}
 )
 
 func init() {
 	for _, table := range TableList {
 		TablesByName[table.Name] = table
+		TablesByTask[table.Task] = append(TablesByTask[table.Task], table)
 		for _, schema := range table.Schemas {
 			TablesBySchema[schema] = append(TablesBySchema[schema], table)
 		}
@@ -85,7 +90,7 @@ type ExportManifest struct {
 	Files  []ExportFile
 }
 
-func manifestForDate(d Date, network string, genesisTs int64, outputPath string, schemaVersion int) (*ExportManifest, error) {
+func manifestForDate(d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table) (*ExportManifest, error) {
 	p := firstExportPeriod(genesisTs)
 
 	if p.Date.After(d) {
@@ -97,15 +102,26 @@ func manifestForDate(d Date, network string, genesisTs int64, outputPath string,
 		p = p.Next()
 	}
 
-	return manifestForPeriod(p, network, genesisTs, outputPath, schemaVersion)
+	return manifestForPeriod(p, network, genesisTs, outputPath, schemaVersion, allowedTables)
 }
 
-func manifestForPeriod(p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int) (*ExportManifest, error) {
+func manifestForPeriod(p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table) (*ExportManifest, error) {
 	em := &ExportManifest{
 		Period: p,
 	}
 
 	for _, t := range TablesBySchema[schemaVersion] {
+		allowed := false
+		for i := range allowedTables {
+			if allowedTables[i].Name == t.Name {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			continue
+		}
+
 		f := ExportFile{
 			Date:        em.Period.Date,
 			Schema:      schemaVersion,
@@ -124,6 +140,27 @@ func manifestForPeriod(p ExportPeriod, network string, genesisTs int64, outputPa
 	}
 
 	return em, nil
+}
+
+func (em *ExportManifest) FilterTables(allowed []Table) *ExportManifest {
+	out := new(ExportManifest)
+	out.Period = em.Period
+
+	for _, f := range em.Files {
+		include := false
+		for _, t := range allowed {
+			if f.TableName == t.Name {
+				include = true
+				break
+			}
+		}
+
+		if include {
+			out.Files = append(out.Files, f)
+		}
+	}
+
+	return out
 }
 
 // ExportPeriod holds the parameters for an export covering a date.
@@ -220,9 +257,17 @@ func walkForManifest(em *ExportManifest) (*lily.LilyWalkConfig, error) {
 		return nil, fmt.Errorf("walk name: %w", err)
 	}
 
+	tasks := tasksForManifest(em)
+
+	// Ensure we always produce the chain_consenus table
+	sort.Strings(tasks)
+	if sort.SearchStrings(tasks, "consensus") >= len(tasks) {
+		tasks = append(tasks, "consensus")
+	}
+
 	return &lily.LilyWalkConfig{
 		Name:                walkName,
-		Tasks:               tasksForManifest(em),
+		Tasks:               tasks,
 		Window:              0, // no time out
 		From:                em.Period.StartHeight,
 		To:                  em.Period.EndHeight,

@@ -56,10 +56,34 @@ var app = &cli.App{
 						Usage: "Minimum height that should be exported. This may be used for nodes that do not have full state history.",
 						Value: 1005360, // TODO: remove default
 					},
+					&cli.StringFlag{
+						Name:  "tasks",
+						Usage: "Comma separated list of tasks that are allowed to be processed.",
+						Value: "",
+					},
 				},
 			),
 			Action: func(cc *cli.Context) error {
 				ctx := cc.Context
+				tasks := cc.String("tasks")
+
+				// Build list of allowed tables. Could be all tables.
+				var allowedTables []Table
+				if tasks == "" || tasks == "all" {
+					allowedTables = append(allowedTables, TableList...)
+				} else {
+					taskList := strings.Split(cc.String("tasks"), ",")
+					if len(taskList) == 0 {
+						return fmt.Errorf("invalid tasks specified")
+					}
+					for _, task := range taskList {
+						tables, ok := TablesByTask[task]
+						if !ok {
+							return fmt.Errorf("unknown task: %s", task)
+						}
+						allowedTables = append(allowedTables, tables...)
+					}
+				}
 
 				peer, err := NewPeer(&PeerConfig{
 					ListenAddr:    ipfsConfig.listenAddr,
@@ -72,9 +96,8 @@ var app = &cli.App{
 				defer peer.Close()
 
 				p := firstExportPeriodAfter(cc.Int64("min-height"), networkConfig.genesisTs)
-
 				for {
-					em, err := manifestForPeriod(p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion)
+					em, err := manifestForPeriod(p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables)
 					if err != nil {
 						return fmt.Errorf("failed to create manifest for %s: %w", p.Date.String(), err)
 					}
@@ -84,7 +107,6 @@ var app = &cli.App{
 					}
 
 					p = p.Next()
-
 				}
 			},
 		},
@@ -113,7 +135,7 @@ var app = &cli.App{
 				for p.EndHeight+Finality < current {
 					logger.Infof("export for %s uses range %d-%d", p.Date.String(), p.StartHeight, p.EndHeight)
 
-					em, err := manifestForPeriod(p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion)
+					em, err := manifestForPeriod(p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList)
 					if err != nil {
 						return fmt.Errorf("build manifest for period: %w", err)
 					}
