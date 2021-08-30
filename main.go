@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ipfs/go-ipfs-api"
 	"github.com/urfave/cli/v2"
 )
 
@@ -86,21 +85,18 @@ var app = &cli.App{
 					}
 				}
 
-				sh := shell.NewShell(ipfsConfig.addr)
-				_, err := sh.ID()
-				if err != nil {
-					return fmt.Errorf("failed to connect to ipfs node at %s: %w", ipfsConfig.addr, err)
+				if err := checkIpfs(ipfsConfig.addr); err != nil {
+					return fmt.Errorf("ipfs: %w", err)
 				}
-				logger.Infof("connected to ipfs node %s", ipfsConfig.addr)
 
 				p := firstExportPeriodAfter(cc.Int64("min-height"), networkConfig.genesisTs)
 				for {
-					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables, sh)
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables, ipfsConfig.addr)
 					if err != nil {
 						return fmt.Errorf("failed to create manifest for %s: %w", p.Date.String(), err)
 					}
 
-					if err := processExport(ctx, em, cc.String("output"), sh); err != nil {
+					if err := processExport(ctx, em, cc.String("output"), ipfsConfig.addr); err != nil {
 						return fmt.Errorf("failed to process export for %s: %w", p.Date.String(), err)
 					}
 
@@ -164,12 +160,9 @@ var app = &cli.App{
 					}
 				}
 
-				sh := shell.NewShell(ipfsConfig.addr)
-				_, err := sh.ID()
-				if err != nil {
-					return fmt.Errorf("failed to connect to ipfs node at %s: %w", ipfsConfig.addr, err)
+				if err := checkIpfs(ipfsConfig.addr); err != nil {
+					return fmt.Errorf("ipfs: %w", err)
 				}
-				logger.Infof("connected to ipfs node %s", ipfsConfig.addr)
 
 				includeShipped := cc.Bool("shipped")
 				includeAnnounced := cc.Bool("announced")
@@ -185,7 +178,7 @@ var app = &cli.App{
 						continue
 					}
 
-					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList, sh)
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList, ipfsConfig.addr)
 					if err != nil {
 						return fmt.Errorf("build manifest for period: %w", err)
 					}

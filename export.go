@@ -91,7 +91,7 @@ type ExportManifest struct {
 	Files  []ExportFile
 }
 
-func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, sh *shell.Shell) (*ExportManifest, error) {
+func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, ipfsAddr string) (*ExportManifest, error) {
 	p := firstExportPeriod(genesisTs)
 
 	if p.Date.After(d) {
@@ -103,10 +103,15 @@ func manifestForDate(ctx context.Context, d Date, network string, genesisTs int6
 		p = p.Next()
 	}
 
-	return manifestForPeriod(ctx, p, network, genesisTs, outputPath, schemaVersion, allowedTables, sh)
+	return manifestForPeriod(ctx, p, network, genesisTs, outputPath, schemaVersion, allowedTables, ipfsAddr)
 }
 
-func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, sh *shell.Shell) (*ExportManifest, error) {
+func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, ipfsAddr string) (*ExportManifest, error) {
+	sh := shell.NewShell(ipfsAddr)
+	if err := WaitUntil(ctx, ipfsIsAvailable(sh), time.Second*30); err != nil {
+		return nil, fmt.Errorf("failed waiting for ipfs to become available: %w", err)
+	}
+
 	em := &ExportManifest{
 		Period: p,
 	}
@@ -178,6 +183,24 @@ func (em *ExportManifest) FilterTables(allowed []Table) *ExportManifest {
 	}
 
 	return out
+}
+
+func (em *ExportManifest) HasUnshippedFiles() bool {
+	for _, f := range em.Files {
+		if !f.Shipped {
+			return true
+		}
+	}
+	return false
+}
+
+func (em *ExportManifest) HasUnannouncedFiles() bool {
+	for _, f := range em.Files {
+		if !f.Announced {
+			return true
+		}
+	}
+	return false
 }
 
 // ExportPeriod holds the parameters for an export covering a date.
@@ -319,82 +342,91 @@ func exportFilePath(exportPath, prefix, name string) string {
 	return filepath.Join(exportPath, fmt.Sprintf("%s-%s.csv", prefix, name))
 }
 
-func processExport(ctx context.Context, em *ExportManifest, outputPath string, sh *shell.Shell) error {
+func processExport(ctx context.Context, em *ExportManifest, outputPath string, ipfsAddr string) error {
 	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 
-	if len(em.Files) == 0 {
-		ll.Info("found all expected files, nothing to do")
+	if !em.HasUnshippedFiles() && !em.HasUnannouncedFiles() {
+		ll.Info("all files shipped and announced, nothing to do")
 		return nil
 	}
 
-	ll.Infof("export period is missing %d files", len(em.Files))
+	if em.HasUnshippedFiles() {
+		ll.Info("preparing to export files for shipping")
 
-	// We must wait for one full finality after the end of the period before running the export
-	earliestStartTs := HeightToUnix(em.Period.EndHeight+Finality, networkConfig.genesisTs)
-	ll.Infof("earliest time this export can start: %d (%s)", earliestStartTs, time.Unix(earliestStartTs, 0))
+		// We must wait for one full finality after the end of the period before running the export
+		earliestStartTs := HeightToUnix(em.Period.EndHeight+Finality, networkConfig.genesisTs)
+		ll.Infof("earliest time this export can start: %d (%s)", earliestStartTs, time.Unix(earliestStartTs, 0))
 
-	// TODO: wait until earliest export time
-	if err := WaitUntil(ctx, timeIsAfter(earliestStartTs), time.Second*30); err != nil {
-		return fmt.Errorf("failed waiting for earliest export time: %w", err)
+		// TODO: wait until earliest export time
+		if err := WaitUntil(ctx, timeIsAfter(earliestStartTs), time.Second*30); err != nil {
+			return fmt.Errorf("failed waiting for earliest export time: %w", err)
+		}
+
+		// TODO: always run consensus task
+		walkCfg, err := walkForManifest(em)
+		if err != nil {
+			return fmt.Errorf("build walk for yesterday: %w", err)
+		}
+		ll.Debugf("using tasks %s", strings.Join(walkCfg.Tasks, ","))
+
+		api, closer, err := commands.GetAPI(ctx, lilyConfig.apiAddr, lilyConfig.apiToken)
+		if err != nil {
+			return fmt.Errorf("could not access lily api: %w", err)
+		}
+		defer closer()
+
+		jobID, err := api.LilyWalk(ctx, walkCfg)
+		if err != nil {
+			return fmt.Errorf("failed to create walk: %w", err)
+		}
+
+		ll.Infof("waiting for walk %s with id %d to complete", walkCfg.Name, jobID)
+		if err := WaitUntil(ctx, jobHasEnded(api, jobID), time.Second*30); err != nil {
+			return fmt.Errorf("failed waiting for job to finish: %w", err)
+		}
+
+		jr, err := getJobResult(ctx, api, jobID)
+		if err != nil {
+			return fmt.Errorf("failed reading job result: %w", err)
+		}
+
+		if jr.Error != "" {
+			// TODO: retry
+			return fmt.Errorf("job failed with error: %s", jr.Error)
+		}
+
+		ll.Info("export complete")
+
+		wi := WalkInfo{
+			Name:   walkCfg.Name,
+			Path:   storageConfig.path,
+			Format: "csv",
+		}
+
+		_, err = verifyExport(ctx, em, wi, outputPath)
+		if err != nil {
+			return fmt.Errorf("failed to verify export files: %w", err)
+		}
+
+		err = shipExport(ctx, em, wi, outputPath)
+		if err != nil {
+			return fmt.Errorf("failed to ship export files: %w", err)
+		}
 	}
 
-	// TODO: always run consensus task
-	walkCfg, err := walkForManifest(em)
-	if err != nil {
-		return fmt.Errorf("build walk for yesterday: %w", err)
-	}
-	ll.Infof("using tasks %s", strings.Join(walkCfg.Tasks, ","))
+	if em.HasUnannouncedFiles() {
+		sh := shell.NewShell(ipfsAddr)
 
-	api, closer, err := commands.GetAPI(ctx, lilyConfig.apiAddr, lilyConfig.apiToken)
-	if err != nil {
-		return fmt.Errorf("could not access lily api: %w", err)
-	}
-	defer closer()
+		ll.Info("waiting for ipfs node to become available")
+		if err := WaitUntil(ctx, ipfsIsAvailable(sh), time.Second*30); err != nil {
+			return fmt.Errorf("failed waiting for ipfs to become available: %w", err)
+		}
 
-	// TODO: don't start the walk if we have raw exports and they have no execution errors
-
-	jobID, err := api.LilyWalk(ctx, walkCfg)
-	if err != nil {
-		return fmt.Errorf("failed to create walk: %w", err)
-	}
-
-	ll.Infof("started walk %s with id %d", walkCfg.Name, jobID)
-
-	if err := WaitUntil(ctx, jobHasEnded(api, jobID), time.Second*30); err != nil {
-		return fmt.Errorf("failed waiting for job to finish: %w", err)
-	}
-
-	jr, err := getJobResult(ctx, api, jobID)
-	if err != nil {
-		return fmt.Errorf("failed reading job result: %w", err)
-	}
-
-	if jr.Error != "" {
-		// TODO: retry
-		return fmt.Errorf("job failed with error: %s", jr.Error)
-	}
-
-	ll.Info("export complete")
-
-	wi := WalkInfo{
-		Name:   walkCfg.Name,
-		Path:   storageConfig.path,
-		Format: "csv",
-	}
-
-	_, err = verifyExport(ctx, em, wi, outputPath)
-	if err != nil {
-		return fmt.Errorf("failed to verify export files: %w", err)
-	}
-
-	err = shipExport(ctx, em, wi, outputPath)
-	if err != nil {
-		return fmt.Errorf("failed to ship export files: %w", err)
-	}
-
-	err = announceExport(ctx, em, outputPath, sh)
-	if err != nil {
-		return fmt.Errorf("failed to announce export files: %w", err)
+		ll.Info("announcing exported files")
+		err := announceExport(ctx, em, outputPath, sh)
+		if err != nil {
+			return fmt.Errorf("failed to announce exported files: %w", err)
+		}
 	}
 
 	return nil
@@ -445,4 +477,15 @@ type WalkInfo struct {
 // WalkFile returns the path to the file that the walk would write for the given table
 func (w *WalkInfo) WalkFile(table string) string {
 	return filepath.Join(w.Path, fmt.Sprintf("%s-%s.%s", w.Name, table, w.Format))
+}
+
+func ipfsIsAvailable(sh *shell.Shell) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		_, err := sh.ID()
+		if err != nil {
+			return false, nil
+		}
+
+		return true, nil
+	}
 }
