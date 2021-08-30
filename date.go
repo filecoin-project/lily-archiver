@@ -15,6 +15,9 @@ func (d *Date) String() string {
 }
 
 func (d Date) Time() time.Time {
+	if d.IsZero() {
+		return time.Time{}
+	}
 	return time.Date(d.Year, time.Month(d.Month), d.Day, 0, 0, 0, 0, time.UTC)
 }
 
