@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ipfs/go-ipfs-api"
 	"github.com/urfave/cli/v2"
 )
 
@@ -85,24 +86,21 @@ var app = &cli.App{
 					}
 				}
 
-				peer, err := NewPeer(&PeerConfig{
-					ListenAddr:    ipfsConfig.listenAddr,
-					DatastorePath: ipfsConfig.datastorePath,
-					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
-				})
+				sh := shell.NewShell(ipfsConfig.addr)
+				_, err := sh.ID()
 				if err != nil {
-					return fmt.Errorf("start ipfs peer: %w", err)
+					return fmt.Errorf("failed to connect to ipfs node at %s: %w", ipfsConfig.addr, err)
 				}
-				defer peer.Close()
+				logger.Infof("connected to ipfs node %s", ipfsConfig.addr)
 
 				p := firstExportPeriodAfter(cc.Int64("min-height"), networkConfig.genesisTs)
 				for {
-					em, err := manifestForPeriod(p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables)
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables, sh)
 					if err != nil {
 						return fmt.Errorf("failed to create manifest for %s: %w", p.Date.String(), err)
 					}
 
-					if err := processExport(ctx, em, cc.String("output"), peer); err != nil {
+					if err := processExport(ctx, em, cc.String("output"), sh); err != nil {
 						return fmt.Errorf("failed to process export for %s: %w", p.Date.String(), err)
 					}
 
@@ -112,39 +110,107 @@ var app = &cli.App{
 		},
 
 		{
-			Name:   "scan",
-			Usage:  "Scan the output directory hierarchy and build a manifest of files that should be present.",
+			Name:   "stat",
+			Usage:  "Report the status of export files.",
 			Before: configure,
 			Flags: flagSet(
 				loggingFlags,
 				networkFlags,
 				storageFlags,
+				ipfsFlags,
 				[]cli.Flag{
 					&cli.StringFlag{
 						Name:  "output",
 						Usage: "Path to write output files.",
 						Value: "/mnt/disk1/data/export", // TODO: remove default
 					},
+					&cli.BoolFlag{
+						Name:  "shipped",
+						Usage: "Include files that have been shipped.",
+						Value: false,
+					},
+					&cli.BoolFlag{
+						Name:  "announced",
+						Usage: "Include files that have been announced on IPFS.",
+						Value: false,
+					},
+					&cli.StringFlag{
+						Name:  "from-date",
+						Usage: "Include only files that are exported on or after this date.",
+					},
+					&cli.StringFlag{
+						Name:  "to-date",
+						Usage: "Include only files that are exported on or before this date.",
+					},
 				},
 			),
 			Action: func(cc *cli.Context) error {
+				ctx := cc.Context
+				var fromDate Date
+				if cc.IsSet("from-date") {
+					var err error
+					fromDate, err = DateFromString(cc.String("from-date"))
+					if err != nil {
+						return fmt.Errorf("invalid from date: %w", err)
+					}
+				}
+
+				var toDate Date
+				if cc.IsSet("to-date") {
+					var err error
+					toDate, err = DateFromString(cc.String("to-date"))
+					if err != nil {
+						return fmt.Errorf("invalid to date: %w", err)
+					}
+				}
+
+				sh := shell.NewShell(ipfsConfig.addr)
+				_, err := sh.ID()
+				if err != nil {
+					return fmt.Errorf("failed to connect to ipfs node at %s: %w", ipfsConfig.addr, err)
+				}
+				logger.Infof("connected to ipfs node %s", ipfsConfig.addr)
+
+				includeShipped := cc.Bool("shipped")
+				includeAnnounced := cc.Bool("announced")
+
 				current := CurrentHeight(networkConfig.genesisTs)
-				logger.Infof("current epoch: %d\n", current)
 
-				p := firstExportPeriod(networkConfig.genesisTs)
-				for p.EndHeight+Finality < current {
-					logger.Infof("export for %s uses range %d-%d", p.Date.String(), p.StartHeight, p.EndHeight)
+				for p := firstExportPeriod(networkConfig.genesisTs); p.EndHeight+Finality < current; p = p.Next() {
+					if !fromDate.IsZero() && fromDate.After(p.Date) {
+						continue
+					}
 
-					em, err := manifestForPeriod(p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList)
+					if !toDate.IsZero() && p.Date.After(toDate) {
+						continue
+					}
+
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList, sh)
 					if err != nil {
 						return fmt.Errorf("build manifest for period: %w", err)
 					}
 
+					fmt.Printf("== %s (%d-%d)\n", p.Date.String(), p.StartHeight, p.EndHeight)
 					for _, ef := range em.Files {
-						logger.Infof("export for %s is missing file %s", p.Date.String(), ef.Path())
+						shipped := "x"
+						if ef.Shipped {
+							if !includeShipped {
+								continue
+							}
+							shipped = "S"
+						}
+
+						announced := "x"
+						if ef.Announced {
+							if !includeAnnounced {
+								continue
+							}
+							announced = "A"
+						}
+
+						fmt.Printf("%s%s %s\n", shipped, announced, ef.TableName)
 					}
 
-					p = p.Next()
 				}
 
 				return nil
@@ -293,16 +359,6 @@ var app = &cli.App{
 					Format: "csv",
 				}
 
-				p, err := NewPeer(&PeerConfig{
-					ListenAddr:    ipfsConfig.listenAddr,
-					DatastorePath: ipfsConfig.datastorePath,
-					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
-				})
-				if err != nil {
-					return fmt.Errorf("start ipfs peer: %w", err)
-				}
-				defer p.Close()
-
 				tables := strings.Split(cc.String("tables"), ",")
 				for _, table := range tables {
 					if _, ok := TablesByName[table]; !ok {
@@ -318,35 +374,11 @@ var app = &cli.App{
 						Compression: c.Extension,
 					}
 
-					err := shipFile(cc.Context, ef, wi, cc.String("output"), p)
+					err := shipFile(cc.Context, ef, wi, cc.String("output"))
 					if err != nil {
 						return fmt.Errorf("ship file: %w", err)
 					}
 				}
-				return nil
-			},
-		},
-
-		{
-			Name:   "serve",
-			Usage:  "Serve ipfs blocks.",
-			Before: configure,
-			Flags: flagSet(
-				loggingFlags,
-				ipfsFlags,
-			),
-			Action: func(cc *cli.Context) error {
-				p, err := NewPeer(&PeerConfig{
-					ListenAddr:    ipfsConfig.listenAddr,
-					DatastorePath: ipfsConfig.datastorePath,
-					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
-				})
-				if err != nil {
-					return fmt.Errorf("start ipfs peer: %w", err)
-				}
-				defer p.Close()
-
-				<-cc.Context.Done()
 				return nil
 			},
 		},

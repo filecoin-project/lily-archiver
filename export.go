@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/sentinel-visor/commands"
 	"github.com/filecoin-project/sentinel-visor/lens/lily"
 	"github.com/filecoin-project/sentinel-visor/schedule"
+	"github.com/ipfs/go-ipfs-api"
 )
 
 type Table struct {
@@ -90,7 +91,7 @@ type ExportManifest struct {
 	Files  []ExportFile
 }
 
-func manifestForDate(d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table) (*ExportManifest, error) {
+func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, sh *shell.Shell) (*ExportManifest, error) {
 	p := firstExportPeriod(genesisTs)
 
 	if p.Date.After(d) {
@@ -102,10 +103,10 @@ func manifestForDate(d Date, network string, genesisTs int64, outputPath string,
 		p = p.Next()
 	}
 
-	return manifestForPeriod(p, network, genesisTs, outputPath, schemaVersion, allowedTables)
+	return manifestForPeriod(ctx, p, network, genesisTs, outputPath, schemaVersion, allowedTables, sh)
 }
 
-func manifestForPeriod(p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table) (*ExportManifest, error) {
+func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, sh *shell.Shell) (*ExportManifest, error) {
 	em := &ExportManifest{
 		Period: p,
 	}
@@ -129,11 +130,27 @@ func manifestForPeriod(p ExportPeriod, network string, genesisTs int64, outputPa
 			TableName:   t.Name,
 			Format:      "csv", // hardcoded for now
 			Compression: "gz",  // hardcoded for now
+			Shipped:     true,
+			Announced:   false,
 		}
 
 		_, err := os.Stat(filepath.Join(outputPath, f.Path()))
-		if !errors.Is(err, os.ErrNotExist) {
-			continue
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				f.Shipped = false
+			} else {
+				return nil, fmt.Errorf("stat: %w", err)
+			}
+		}
+
+		_, err = sh.FilesStat(ctx, filepath.Join("/", f.Path()))
+		if err != nil {
+			var sherr *shell.Error
+			if errors.As(err, &sherr) && strings.Contains(sherr.Message, "does not exist") {
+				f.Announced = false
+			} else {
+				return nil, fmt.Errorf("mfs stat: %w", err)
+			}
 		}
 
 		em.Files = append(em.Files, f)
@@ -221,6 +238,8 @@ type ExportFile struct {
 	TableName   string
 	Format      string
 	Compression string
+	Shipped     bool // Shipped indicates that the file has been compressed and placed in the shared filesystem
+	Announced   bool // Announced indicates that the file has added to IPFS
 }
 
 // Path returns the path and file name that the export file should be written to.
@@ -233,11 +252,14 @@ func (e *ExportFile) String() string {
 	return fmt.Sprintf("%s-%s", e.TableName, e.Date.String())
 }
 
-// tasksForManifest calculates the visor tasks needed to produce the files in the supplied manifest
+// tasksForManifest calculates the visor tasks needed to produce the unshipped files in the supplied manifest
 func tasksForManifest(em *ExportManifest) []string {
 	tasks := make(map[string]struct{}, 0)
 
 	for _, f := range em.Files {
+		if f.Shipped {
+			continue
+		}
 		t := TablesByName[f.TableName]
 		tasks[t.Task] = struct{}{}
 	}
@@ -297,7 +319,7 @@ func exportFilePath(exportPath, prefix, name string) string {
 	return filepath.Join(exportPath, fmt.Sprintf("%s-%s.csv", prefix, name))
 }
 
-func processExport(ctx context.Context, em *ExportManifest, outputPath string, p *Peer) error {
+func processExport(ctx context.Context, em *ExportManifest, outputPath string, sh *shell.Shell) error {
 	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 
 	if len(em.Files) == 0 {
@@ -360,15 +382,19 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 		Format: "csv",
 	}
 
-	// TODO: use processing report to look for execution errors
 	_, err = verifyExport(ctx, em, wi, outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to verify export files: %w", err)
 	}
 
-	err = shipExport(ctx, em, wi, outputPath, p)
+	err = shipExport(ctx, em, wi, outputPath, sh)
 	if err != nil {
 		return fmt.Errorf("failed to ship export files: %w", err)
+	}
+
+	err = announceExport(ctx, em, outputPath, sh)
+	if err != nil {
+		return fmt.Errorf("failed to announce export files: %w", err)
 	}
 
 	return nil

@@ -30,6 +30,10 @@ func (d Date) After(d2 Date) bool {
 	return d.Time().After(d2.Time())
 }
 
+func (d Date) IsZero() bool {
+	return d == Date{}
+}
+
 func DateFromTs(ts int64) Date {
 	dt := time.Unix(ts, 0)
 	return DateFromTime(dt)

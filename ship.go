@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/ipfs/go-ipfs-api"
 )
 
 type Compression struct {
@@ -32,9 +34,12 @@ func init() {
 	}
 }
 
-func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string, p *Peer) error {
+func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string, sh *shell.Shell) error {
 	for _, ef := range em.Files {
-		if err := shipFile(ctx, ef, wi, outputPath, p); err != nil {
+		if ef.Shipped {
+			continue
+		}
+		if err := shipFile(ctx, ef, wi, outputPath); err != nil {
 			return err
 		}
 	}
@@ -42,7 +47,7 @@ func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath
 	return nil
 }
 
-func shipFile(ctx context.Context, ef ExportFile, wi WalkInfo, outputPath string, p *Peer) error {
+func shipFile(ctx context.Context, ef ExportFile, wi WalkInfo, outputPath string) error {
 	_, err := exec.LookPath("gzip")
 	if err != nil {
 		return fmt.Errorf("gzip executable: %w", err)
@@ -89,18 +94,5 @@ func shipFile(ctx context.Context, ef ExportFile, wi WalkInfo, outputPath string
 	}
 	ll.Debugf("compressed file size: %d", ginfo.Size())
 
-	f, err := os.Open(shipFile) // For read access.
-	if err != nil {
-		return fmt.Errorf("open shipped file: %w", err)
-	}
-	defer f.Close()
-
-	ll.Debug("adding to ipfs")
-
-	n, err := p.AddFile(ctx, f)
-	if err != nil {
-		return fmt.Errorf("add file to ipfs: %w", err)
-	}
-	ll.Infof("published with cid %s", n.Cid())
 	return nil
 }
