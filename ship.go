@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/ipfs/go-ipfs-api"
 )
 
 type Compression struct {
@@ -34,7 +32,7 @@ func init() {
 	}
 }
 
-func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string, sh *shell.Shell) error {
+func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string) error {
 	for _, ef := range em.Files {
 		if ef.Shipped {
 			continue

@@ -387,7 +387,7 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, s
 		return fmt.Errorf("failed to verify export files: %w", err)
 	}
 
-	err = shipExport(ctx, em, wi, outputPath, sh)
+	err = shipExport(ctx, em, wi, outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to ship export files: %w", err)
 	}
