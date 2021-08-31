@@ -67,11 +67,11 @@ func announceFile(ctx context.Context, ef ExportFile, outputPath string, sh *she
 	return nil
 }
 
-func checkIpfs(addr string) error {
+func NewIpfsShell(addr string) (*shell.Shell, error) {
 	sh := shell.NewShell(addr)
 	_, err := sh.ID()
 	if err != nil {
-		return fmt.Errorf("failed to connect to ipfs node at %s: %w", addr, err)
+		return nil, fmt.Errorf("failed to connect to ipfs node at %s: %w", addr, err)
 	}
-	return nil
+	return sh, nil
 }

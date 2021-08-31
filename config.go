@@ -81,7 +81,7 @@ var (
 		&cli.StringFlag{
 			Name:        "storage-path",
 			Usage:       "Path in which files written by lily will be found. This should be same as the path for the configured storage in visor config.",
-			Value:       "/mnt/disk1/data/csv/lily_testing", // TODO: remove default
+			Value:       "/data/filecoin/archiver/rawcsv/calibnet", // TODO: remove default
 			Destination: &storageConfig.path,
 		},
 		&cli.StringFlag{

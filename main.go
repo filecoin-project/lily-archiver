@@ -49,7 +49,7 @@ var app = &cli.App{
 					&cli.StringFlag{
 						Name:  "output",
 						Usage: "Path to write output files.",
-						Value: "/mnt/disk1/data/export", // TODO: remove default
+						Value: "/data/filecoin/archiver/shipped", // TODO: remove default
 					},
 					&cli.Int64Flag{
 						Name:  "min-height",
@@ -85,7 +85,8 @@ var app = &cli.App{
 					}
 				}
 
-				if err := checkIpfs(ipfsConfig.addr); err != nil {
+				// Check ipfs is available
+				if _, err := NewIpfsShell(ipfsConfig.addr); err != nil {
 					return fmt.Errorf("ipfs: %w", err)
 				}
 
@@ -118,7 +119,7 @@ var app = &cli.App{
 					&cli.StringFlag{
 						Name:  "output",
 						Usage: "Path to write output files.",
-						Value: "/mnt/disk1/data/export", // TODO: remove default
+						Value: "/data/filecoin/archiver/shipped", // TODO: remove default
 					},
 					&cli.BoolFlag{
 						Name:  "shipped",
@@ -160,7 +161,8 @@ var app = &cli.App{
 					}
 				}
 
-				if err := checkIpfs(ipfsConfig.addr); err != nil {
+				// Check ipfs is aavailable
+				if _, err := NewIpfsShell(ipfsConfig.addr); err != nil {
 					return fmt.Errorf("ipfs: %w", err)
 				}
 
@@ -325,7 +327,7 @@ var app = &cli.App{
 					&cli.StringFlag{
 						Name:  "output",
 						Usage: "Path to write output files.",
-						Value: "/mnt/disk1/data/export", // TODO: remove default
+						Value: "/data/filecoin/archiver/shipped", // TODO: remove default
 					},
 					&cli.StringFlag{
 						Name:   "compression",
@@ -370,6 +372,84 @@ var app = &cli.App{
 					err := shipFile(cc.Context, ef, wi, cc.String("output"))
 					if err != nil {
 						return fmt.Errorf("ship file: %w", err)
+					}
+				}
+				return nil
+			},
+		},
+
+		{
+			Name:   "announce",
+			Usage:  "Announce shipped files.",
+			Before: configure,
+			Flags: flagSet(
+				loggingFlags,
+				storageFlags,
+				networkFlags,
+				ipfsFlags,
+				[]cli.Flag{
+					&cli.StringFlag{
+						Name:     "tables",
+						Usage:    "Tables to ship, comma separated.",
+						Required: true,
+					},
+					&cli.StringFlag{
+						Name:  "name",
+						Usage: "Name of the export.",
+						Value: "export-1005360-1008239", // TODO: remove default
+					},
+					&cli.StringFlag{
+						Name:     "date",
+						Usage:    "Date covered by the export.",
+						Required: true,
+					},
+					&cli.StringFlag{
+						Name:  "output",
+						Usage: "Path to write output files.",
+						Value: "/data/filecoin/archiver/shipped", // TODO: remove default
+					},
+					&cli.StringFlag{
+						Name:   "compression",
+						Usage:  "Type of compression used.",
+						Value:  "gz",
+						Hidden: true,
+					},
+				},
+			),
+			Action: func(cc *cli.Context) error {
+				c, ok := CompressionByName[cc.String("compression")]
+				if !ok {
+					return fmt.Errorf("unknown compression %q", cc.String("compression"))
+				}
+
+				dt, err := DateFromString(cc.String("date"))
+				if err != nil {
+					return fmt.Errorf("invalid date: %w", err)
+				}
+
+				sh, err := NewIpfsShell(ipfsConfig.addr)
+				if err != nil {
+					return err
+				}
+
+				tables := strings.Split(cc.String("tables"), ",")
+				for _, table := range tables {
+					if _, ok := TablesByName[table]; !ok {
+						return fmt.Errorf("unknown table %q", table)
+					}
+
+					ef := ExportFile{
+						Date:        dt,
+						Schema:      storageConfig.schemaVersion,
+						Network:     networkConfig.name,
+						TableName:   table,
+						Format:      "csv",
+						Compression: c.Extension,
+					}
+
+					err := announceFile(cc.Context, ef, cc.String("output"), sh)
+					if err != nil {
+						return fmt.Errorf("announce file: %w", err)
 					}
 				}
 				return nil
