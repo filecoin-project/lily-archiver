@@ -87,8 +87,9 @@ func init() {
 }
 
 type ExportManifest struct {
-	Period ExportPeriod
-	Files  []ExportFile
+	Period  ExportPeriod
+	Network string
+	Files   []*ExportFile
 }
 
 func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, ipfsAddr string) (*ExportManifest, error) {
@@ -113,7 +114,8 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 	}
 
 	em := &ExportManifest{
-		Period: p,
+		Period:  p,
+		Network: network,
 	}
 
 	for _, t := range TablesBySchema[schemaVersion] {
@@ -156,9 +158,11 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 			} else {
 				return nil, fmt.Errorf("mfs stat: %w", err)
 			}
+		} else {
+			f.Announced = true
 		}
 
-		em.Files = append(em.Files, f)
+		em.Files = append(em.Files, &f)
 	}
 
 	return em, nil
@@ -219,10 +223,10 @@ func (e *ExportPeriod) Next() ExportPeriod {
 	}
 }
 
-// firstExportPeriod returns the first period that should be exported. This is the period covering the day from
+// firstExportPeriod returns the first period that should be exported. This is the period covering the day
 // from genesis to 23:59:59 UTC the same day.
 func firstExportPeriod(genesisTs int64) ExportPeriod {
-	genesisDt := time.Unix(genesisTs, 0)
+	genesisDt := time.Unix(genesisTs, 0).UTC()
 	midnightEpochAfterGenesis := midnightEpochForTs(genesisDt.AddDate(0, 0, 1).Unix(), genesisTs)
 
 	return ExportPeriod{
@@ -247,9 +251,9 @@ func firstExportPeriodAfter(minHeight int64, genesisTs int64) ExportPeriod {
 	return p
 }
 
-// Returns the height at midnight UTC on the given date
+// Returns the height at midnight UTC (the start of the day) on the given date
 func midnightEpochForTs(ts int64, genesisTs int64) int64 {
-	t := time.Unix(ts, 0)
+	t := time.Unix(ts, 0).UTC()
 	midnight := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	return UnixToHeight(midnight.Unix(), genesisTs)
 }
@@ -355,9 +359,9 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, i
 
 		// We must wait for one full finality after the end of the period before running the export
 		earliestStartTs := HeightToUnix(em.Period.EndHeight+Finality, networkConfig.genesisTs)
-		ll.Infof("earliest time this export can start: %d (%s)", earliestStartTs, time.Unix(earliestStartTs, 0))
-
-		// TODO: wait until earliest export time
+		if time.Now().Unix() < earliestStartTs {
+			ll.Infof("cannot start export until %s", time.Unix(earliestStartTs, 0).UTC().Format(time.RFC3339))
+		}
 		if err := WaitUntil(ctx, timeIsAfter(earliestStartTs), time.Second*30); err != nil {
 			return fmt.Errorf("failed waiting for earliest export time: %w", err)
 		}
@@ -368,6 +372,16 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, i
 			return fmt.Errorf("build walk for yesterday: %w", err)
 		}
 		ll.Debugf("using tasks %s", strings.Join(walkCfg.Tasks, ","))
+
+		wi := WalkInfo{
+			Name:   walkCfg.Name,
+			Path:   storageConfig.path,
+			Format: "csv",
+		}
+		err = touchExportFiles(ctx, em, wi)
+		if err != nil {
+			return fmt.Errorf("failed to touch export files: %w", err)
+		}
 
 		api, closer, err := commands.GetAPI(ctx, lilyConfig.apiAddr, lilyConfig.apiToken)
 		if err != nil {
@@ -397,12 +411,6 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, i
 
 		ll.Info("export complete")
 
-		wi := WalkInfo{
-			Name:   walkCfg.Name,
-			Path:   storageConfig.path,
-			Format: "csv",
-		}
-
 		_, err = verifyExport(ctx, em, wi, outputPath)
 		if err != nil {
 			return fmt.Errorf("failed to verify export files: %w", err)
@@ -412,6 +420,12 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, i
 		if err != nil {
 			return fmt.Errorf("failed to ship export files: %w", err)
 		}
+
+		err = removeExportFiles(ctx, em, wi)
+		if err != nil {
+			return fmt.Errorf("failed to remove export files: %w", err)
+		}
+
 	}
 
 	if em.HasUnannouncedFiles() {
@@ -488,4 +502,29 @@ func ipfsIsAvailable(sh *shell.Shell) func(context.Context) (bool, error) {
 
 		return true, nil
 	}
+}
+
+// touchExportFiles ensures we have a zero length file for every export we expect from lily
+func touchExportFiles(ctx context.Context, em *ExportManifest, wi WalkInfo) error {
+	for _, ef := range em.Files {
+		walkFile := wi.WalkFile(ef.TableName)
+		f, err := os.OpenFile(walkFile, os.O_APPEND|os.O_CREATE, os.ModePerm)
+		if err != nil {
+			return fmt.Errorf("open file: %w", err)
+		}
+		f.Close()
+	}
+
+	return nil
+}
+
+func removeExportFiles(ctx context.Context, em *ExportManifest, wi WalkInfo) error {
+	for _, ef := range em.Files {
+		walkFile := wi.WalkFile(ef.TableName)
+		if err := os.Remove(walkFile); err != nil {
+			logger.Errorf("failed to remove file %s: %w", walkFile, err)
+		}
+	}
+
+	return nil
 }

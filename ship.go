@@ -32,6 +32,15 @@ func init() {
 	}
 }
 
+func verifyShipDependencies() error {
+	// Check gzip is available
+	_, err := exec.LookPath("gzip")
+	if err != nil {
+		return fmt.Errorf("missing gzip executable: %w", err)
+	}
+	return nil
+}
+
 func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string) error {
 	for _, ef := range em.Files {
 		if ef.Shipped {
@@ -40,17 +49,16 @@ func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath
 		if err := shipFile(ctx, ef, wi, outputPath); err != nil {
 			return err
 		}
+
+		// Ensure that each newly shipped file is marked for announcement. In future we could
+		// avoid doing this if we know file has not changed (e.g. was just regenerated)
+		ef.Announced = false
 	}
 
 	return nil
 }
 
-func shipFile(ctx context.Context, ef ExportFile, wi WalkInfo, outputPath string) error {
-	_, err := exec.LookPath("gzip")
-	if err != nil {
-		return fmt.Errorf("gzip executable: %w", err)
-	}
-
+func shipFile(ctx context.Context, ef *ExportFile, wi WalkInfo, outputPath string) error {
 	ll := logger.With("table", ef.TableName, "date", ef.Date.String())
 	ll.Info("shipping export file")
 
@@ -74,7 +82,7 @@ func shipFile(ctx context.Context, ef ExportFile, wi WalkInfo, outputPath string
 	}
 
 	ll.Debugf("compressing to %s", shipFile)
-	bashcmd := fmt.Sprintf("gzip --stdout %s > %s", walkFile, shipFile)
+	bashcmd := fmt.Sprintf("gzip --no-name --rsyncable --stdout %s > %s", walkFile, shipFile)
 
 	cmd := exec.Command("bash", "-c", bashcmd)
 	var stderr bytes.Buffer
@@ -86,11 +94,9 @@ func shipFile(ctx context.Context, ef ExportFile, wi WalkInfo, outputPath string
 		return fmt.Errorf("gzip: %w", err)
 	}
 
-	ginfo, err := os.Stat(shipFile)
-	if err != nil {
+	if _, err := os.Stat(shipFile); err != nil {
 		return fmt.Errorf("file %q stat error: %w", shipFile, err)
 	}
-	ll.Debugf("compressed file size: %d", ginfo.Size())
 
 	return nil
 }

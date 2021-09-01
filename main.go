@@ -58,7 +58,7 @@ var app = &cli.App{
 					},
 					&cli.StringFlag{
 						Name:  "tasks",
-						Usage: "Comma separated list of tasks that are allowed to be processed.",
+						Usage: "Comma separated list of tasks that are allowed to be processed. Default is all tasks.",
 						Value: "",
 					},
 				},
@@ -83,6 +83,10 @@ var app = &cli.App{
 						}
 						allowedTables = append(allowedTables, tables...)
 					}
+				}
+
+				if err := verifyShipDependencies(); err != nil {
+					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
 				// Check ipfs is available
@@ -348,6 +352,10 @@ var app = &cli.App{
 					return fmt.Errorf("invalid date: %w", err)
 				}
 
+				if err := verifyShipDependencies(); err != nil {
+					return fmt.Errorf("unable to ship files: %w", err)
+				}
+
 				wi := WalkInfo{
 					Name:   cc.String("name"),
 					Path:   storageConfig.path,
@@ -369,7 +377,7 @@ var app = &cli.App{
 						Compression: c.Extension,
 					}
 
-					err := shipFile(cc.Context, ef, wi, cc.String("output"))
+					err := shipFile(cc.Context, &ef, wi, cc.String("output"))
 					if err != nil {
 						return fmt.Errorf("ship file: %w", err)
 					}
@@ -447,7 +455,7 @@ var app = &cli.App{
 						Compression: c.Extension,
 					}
 
-					err := announceFile(cc.Context, ef, cc.String("output"), sh)
+					err := announceFile(cc.Context, &ef, cc.String("output"), sh)
 					if err != nil {
 						return fmt.Errorf("announce file: %w", err)
 					}

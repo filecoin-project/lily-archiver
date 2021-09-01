@@ -38,7 +38,7 @@ func (d Date) IsZero() bool {
 }
 
 func DateFromTs(ts int64) Date {
-	dt := time.Unix(ts, 0)
+	dt := time.Unix(ts, 0).UTC()
 	return DateFromTime(dt)
 }
 

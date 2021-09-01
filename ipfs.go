@@ -19,10 +19,17 @@ func announceExport(ctx context.Context, em *ExportManifest, outputPath string, 
 		}
 	}
 
+	mfsNetworkRootDir := filepath.Join("/", em.Network)
+	st, err := sh.FilesStat(ctx, mfsNetworkRootDir)
+	if err != nil {
+		return fmt.Errorf("network root dir %q stat error: %w", mfsNetworkRootDir, err)
+	}
+	logger.With("date", em.Period.Date.String()).Infof("hash of unixfs %s: %s", mfsNetworkRootDir, st.Hash)
+
 	return nil
 }
 
-func announceFile(ctx context.Context, ef ExportFile, outputPath string, sh *shell.Shell) error {
+func announceFile(ctx context.Context, ef *ExportFile, outputPath string, sh *shell.Shell) error {
 	ll := logger.With("table", ef.TableName, "date", ef.Date.String())
 	ll.Info("announcing export file")
 
