@@ -43,6 +43,7 @@ var TableList = []Table{
 	{Name: "drand_block_entries", Schemas: []int{0, 1}, Task: "blocks"},
 	{Name: "id_addresses", Schemas: []int{0, 1}, Task: "actorstatesinit"},
 	{Name: "internal_messages", Schemas: []int{1}, Task: "implicitmessage"},
+	{Name: "internal_parsed_messages", Schemas: []int{1}, Task: "implicitmessage"},
 	{Name: "market_deal_proposals", Schemas: []int{0, 1}, Task: "actorstatesmarket"},
 	{Name: "market_deal_states", Schemas: []int{0, 1}, Task: "actorstatesmarket"},
 	{Name: "message_gas_economy", Schemas: []int{0, 1}, Task: "messages"},
@@ -108,11 +109,6 @@ func manifestForDate(ctx context.Context, d Date, network string, genesisTs int6
 }
 
 func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, ipfsAddr string) (*ExportManifest, error) {
-	sh := shell.NewShell(ipfsAddr)
-	if err := WaitUntil(ctx, ipfsIsAvailable(sh), time.Second*30); err != nil {
-		return nil, fmt.Errorf("failed waiting for ipfs to become available: %w", err)
-	}
-
 	em := &ExportManifest{
 		Period:  p,
 		Network: network,
@@ -346,7 +342,7 @@ func exportFilePath(exportPath, prefix, name string) string {
 	return filepath.Join(exportPath, fmt.Sprintf("%s-%s.csv", prefix, name))
 }
 
-func processExport(ctx context.Context, em *ExportManifest, outputPath string, ipfsAddr string) error {
+func processExport(ctx context.Context, em *ExportManifest, outputPath string, p *Peer) error {
 	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 
 	if !em.HasUnshippedFiles() && !em.HasUnannouncedFiles() {
@@ -429,18 +425,17 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, i
 	}
 
 	if em.HasUnannouncedFiles() {
-		sh := shell.NewShell(ipfsAddr)
-
-		ll.Info("waiting for ipfs node to become available")
-		if err := WaitUntil(ctx, ipfsIsAvailable(sh), time.Second*30); err != nil {
-			return fmt.Errorf("failed waiting for ipfs to become available: %w", err)
-		}
-
 		ll.Info("announcing exported files")
-		err := announceExport(ctx, em, outputPath, sh)
-		if err != nil {
-			return fmt.Errorf("failed to announce exported files: %w", err)
+
+		for _, ef := range em.Files {
+			if ef.Announced {
+				continue
+			}
+			if err := p.announceFile(ctx, ef, outputPath); err != nil {
+				return err
+			}
 		}
+
 	}
 
 	return nil

@@ -89,9 +89,11 @@ var app = &cli.App{
 					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
-				// Check ipfs is available
-				if _, err := NewIpfsShell(ipfsConfig.addr); err != nil {
-					return fmt.Errorf("ipfs: %w", err)
+				pcfg := &PeerConfig{}
+
+				peer, err := NewPeer(pcfg)
+				if err != nil {
+					return fmt.Errorf("new ipfs peer: %w", err)
 				}
 
 				p := firstExportPeriodAfter(cc.Int64("min-height"), networkConfig.genesisTs)
@@ -101,7 +103,7 @@ var app = &cli.App{
 						return fmt.Errorf("failed to create manifest for %s: %w", p.Date.String(), err)
 					}
 
-					if err := processExport(ctx, em, cc.String("output"), ipfsConfig.addr); err != nil {
+					if err := processExport(ctx, em, cc.String("output"), peer); err != nil {
 						return fmt.Errorf("failed to process export for %s: %w", p.Date.String(), err)
 					}
 
@@ -163,11 +165,6 @@ var app = &cli.App{
 					if err != nil {
 						return fmt.Errorf("invalid to date: %w", err)
 					}
-				}
-
-				// Check ipfs is aavailable
-				if _, err := NewIpfsShell(ipfsConfig.addr); err != nil {
-					return fmt.Errorf("ipfs: %w", err)
 				}
 
 				includeShipped := cc.Bool("shipped")
@@ -435,9 +432,11 @@ var app = &cli.App{
 					return fmt.Errorf("invalid date: %w", err)
 				}
 
-				sh, err := NewIpfsShell(ipfsConfig.addr)
+				pcfg := &PeerConfig{}
+
+				p, err := NewPeer(pcfg)
 				if err != nil {
-					return err
+					return fmt.Errorf("new ipfs peer: %w", err)
 				}
 
 				tables := strings.Split(cc.String("tables"), ",")
@@ -455,7 +454,7 @@ var app = &cli.App{
 						Compression: c.Extension,
 					}
 
-					err := announceFile(cc.Context, &ef, cc.String("output"), sh)
+					err := p.announceFile(cc.Context, &ef, cc.String("output"))
 					if err != nil {
 						return fmt.Errorf("announce file: %w", err)
 					}
