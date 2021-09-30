@@ -89,16 +89,18 @@ var app = &cli.App{
 					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
-				pcfg := &PeerConfig{}
-
-				peer, err := NewPeer(pcfg)
+				peer, err := NewPeer(&PeerConfig{
+					ListenAddr:    ipfsConfig.listenAddr,
+					DatastorePath: ipfsConfig.datastorePath,
+					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
+				})
 				if err != nil {
 					return fmt.Errorf("new ipfs peer: %w", err)
 				}
 
 				p := firstExportPeriodAfter(cc.Int64("min-height"), networkConfig.genesisTs)
 				for {
-					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables, ipfsConfig.addr)
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables, peer)
 					if err != nil {
 						return fmt.Errorf("failed to create manifest for %s: %w", p.Date.String(), err)
 					}
@@ -167,6 +169,15 @@ var app = &cli.App{
 					}
 				}
 
+				peer, err := NewPeer(&PeerConfig{
+					ListenAddr:    ipfsConfig.listenAddr,
+					DatastorePath: ipfsConfig.datastorePath,
+					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
+				})
+				if err != nil {
+					return fmt.Errorf("new ipfs peer: %w", err)
+				}
+
 				includeShipped := cc.Bool("shipped")
 				includeAnnounced := cc.Bool("announced")
 
@@ -181,19 +192,21 @@ var app = &cli.App{
 						continue
 					}
 
-					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList, ipfsConfig.addr)
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList, peer)
 					if err != nil {
 						return fmt.Errorf("build manifest for period: %w", err)
 					}
 
 					fmt.Printf("== %s (%d-%d)\n", p.Date.String(), p.StartHeight, p.EndHeight)
 					for _, ef := range em.Files {
+						desc := ef.TableName
 						shipped := "x"
 						if ef.Shipped {
 							if !includeShipped {
 								continue
 							}
 							shipped = "S"
+							desc += "\t" + ef.Path()
 						}
 
 						announced := "x"
@@ -202,9 +215,12 @@ var app = &cli.App{
 								continue
 							}
 							announced = "A"
+							desc += "\t" + ef.Cid.String()
 						}
 
-						fmt.Printf("%s%s %s\n", shipped, announced, ef.TableName)
+						if includeAnnounced {
+							fmt.Printf("%s%s %s\n", shipped, announced, desc)
+						}
 					}
 
 				}
@@ -432,9 +448,11 @@ var app = &cli.App{
 					return fmt.Errorf("invalid date: %w", err)
 				}
 
-				pcfg := &PeerConfig{}
-
-				p, err := NewPeer(pcfg)
+				peer, err := NewPeer(&PeerConfig{
+					ListenAddr:    ipfsConfig.listenAddr,
+					DatastorePath: ipfsConfig.datastorePath,
+					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
+				})
 				if err != nil {
 					return fmt.Errorf("new ipfs peer: %w", err)
 				}
@@ -454,11 +472,16 @@ var app = &cli.App{
 						Compression: c.Extension,
 					}
 
-					err := p.announceFile(cc.Context, &ef, cc.String("output"))
+					_, err := peer.addFile(cc.Context, &ef, cc.String("output"))
 					if err != nil {
-						return fmt.Errorf("announce file: %w", err)
+						return fmt.Errorf("add file: %w", err)
 					}
 				}
+
+				if err := peer.provide(cc.Context); err != nil {
+					return fmt.Errorf("provide: %w", err)
+				}
+
 				return nil
 			},
 		},

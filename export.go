@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/filecoin-project/sentinel-visor/commands"
 	"github.com/filecoin-project/sentinel-visor/lens/lily"
 	"github.com/filecoin-project/sentinel-visor/schedule"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-ipfs-api"
 )
 
@@ -93,7 +93,7 @@ type ExportManifest struct {
 	Files   []*ExportFile
 }
 
-func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, ipfsAddr string) (*ExportManifest, error) {
+func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, peer *Peer) (*ExportManifest, error) {
 	p := firstExportPeriod(genesisTs)
 
 	if p.Date.After(d) {
@@ -105,10 +105,10 @@ func manifestForDate(ctx context.Context, d Date, network string, genesisTs int6
 		p = p.Next()
 	}
 
-	return manifestForPeriod(ctx, p, network, genesisTs, outputPath, schemaVersion, allowedTables, ipfsAddr)
+	return manifestForPeriod(ctx, p, network, genesisTs, outputPath, schemaVersion, allowedTables, peer)
 }
 
-func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, ipfsAddr string) (*ExportManifest, error) {
+func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, peer *Peer) (*ExportManifest, error) {
 	em := &ExportManifest{
 		Period:  p,
 		Network: network,
@@ -135,6 +135,7 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 			Compression: "gz",  // hardcoded for now
 			Shipped:     true,
 			Announced:   false,
+			Cid:         cid.Undef,
 		}
 
 		_, err := os.Stat(filepath.Join(outputPath, f.Path()))
@@ -146,17 +147,12 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 			}
 		}
 
-		_, err = sh.FilesStat(ctx, filepath.Join("/", f.Path()))
+		exists, fcid, err := peer.fileExists(ctx, filepath.Join("/", f.Path()))
 		if err != nil {
-			var sherr *shell.Error
-			if errors.As(err, &sherr) && strings.Contains(sherr.Message, "does not exist") {
-				f.Announced = false
-			} else {
-				return nil, fmt.Errorf("mfs stat: %w", err)
-			}
-		} else {
-			f.Announced = true
+			return nil, fmt.Errorf("mfs file exists: %w", err)
 		}
+		f.Announced = exists
+		f.Cid = fcid
 
 		em.Files = append(em.Files, &f)
 	}
@@ -263,6 +259,7 @@ type ExportFile struct {
 	Compression string
 	Shipped     bool // Shipped indicates that the file has been compressed and placed in the shared filesystem
 	Announced   bool // Announced indicates that the file has added to IPFS
+	Cid         cid.Cid
 }
 
 // Path returns the path and file name that the export file should be written to.
@@ -305,8 +302,14 @@ func walkForManifest(em *ExportManifest) (*lily.LilyWalkConfig, error) {
 	tasks := tasksForManifest(em)
 
 	// Ensure we always produce the chain_consenus table
-	sort.Strings(tasks)
-	if sort.SearchStrings(tasks, "consensus") >= len(tasks) {
+	hasConsensusTask := false
+	for _, task := range tasks {
+		if task == "consensus" {
+			hasConsensusTask = true
+			break
+		}
+	}
+	if !hasConsensusTask {
 		tasks = append(tasks, "consensus")
 	}
 
@@ -342,7 +345,7 @@ func exportFilePath(exportPath, prefix, name string) string {
 	return filepath.Join(exportPath, fmt.Sprintf("%s-%s.csv", prefix, name))
 }
 
-func processExport(ctx context.Context, em *ExportManifest, outputPath string, p *Peer) error {
+func processExport(ctx context.Context, em *ExportManifest, outputPath string, peer *Peer) error {
 	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 
 	if !em.HasUnshippedFiles() && !em.HasUnannouncedFiles() {
@@ -362,7 +365,6 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 			return fmt.Errorf("failed waiting for earliest export time: %w", err)
 		}
 
-		// TODO: always run consensus task
 		walkCfg, err := walkForManifest(em)
 		if err != nil {
 			return fmt.Errorf("build walk for yesterday: %w", err)
@@ -425,17 +427,28 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 	}
 
 	if em.HasUnannouncedFiles() {
-		ll.Info("announcing exported files")
+		ll.Info("announcing shipped files")
 
 		for _, ef := range em.Files {
 			if ef.Announced {
 				continue
 			}
-			if err := p.announceFile(ctx, ef, outputPath); err != nil {
-				return err
+			_, err := peer.addFile(ctx, ef, outputPath)
+			if err != nil {
+				return fmt.Errorf("add file: %w", err)
 			}
 		}
 
+		mfsCid, err := peer.rootCid()
+		if err != nil {
+			return fmt.Errorf("root cid: %w", err)
+		}
+		logger.Infof("new root cid: %s", mfsCid.String())
+
+	}
+
+	if err := peer.provide(ctx); err != nil {
+		return fmt.Errorf("provide: %w", err)
 	}
 
 	return nil

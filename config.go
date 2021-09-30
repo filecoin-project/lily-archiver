@@ -102,15 +102,29 @@ var (
 
 var (
 	ipfsConfig struct {
-		addr string
+		listenAddr    string
+		datastorePath string
+		libp2pKeyfile string
 	}
 
 	ipfsFlags = []cli.Flag{
 		&cli.StringFlag{
+			Name:        "ipfs-datastore",
+			Usage:       "Path to IPFS datastore.",
+			Value:       "/mnt/disk1/data/ipfs/store", // TODO: remove default
+			Destination: &ipfsConfig.datastorePath,
+		},
+		&cli.StringFlag{
 			Name:        "ipfs-addr",
-			Usage:       "Multiaddress of IPFS node API.",
-			Value:       "/ip4/0.0.0.0/tcp/5001",
-			Destination: &ipfsConfig.addr,
+			Usage:       "Multiaddress IPFS node should listen on.",
+			Value:       "/ip4/0.0.0.0/tcp/4005",
+			Destination: &ipfsConfig.listenAddr,
+		},
+		&cli.StringFlag{
+			Name:        "ipfs-keyfile",
+			Usage:       "Path to libp2p key file.",
+			Value:       "/mnt/disk1/data/ipfs/peer.key",
+			Destination: &ipfsConfig.libp2pKeyfile,
 		},
 	}
 )

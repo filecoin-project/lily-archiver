@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -123,6 +124,10 @@ func NewPeer(cfg *PeerConfig) (*Peer, error) {
 
 	if err := p.setupBlockService(); err != nil {
 		return nil, fmt.Errorf("setup blockservice: %w", err)
+	}
+
+	if err := p.setupReprovider(); err != nil {
+		return nil, fmt.Errorf("setup reprovider: %w", err)
 	}
 
 	if err := p.setupDAGService(); err != nil {
@@ -286,7 +291,7 @@ func (p *Peer) setupReprovider() error {
 	)
 
 	reprovider := provider.NewSystem(prov, reprov)
-	p.reprovider.Run()
+	reprovider.Run()
 
 	p.mu.Lock()
 	p.reprovider = reprovider
@@ -423,19 +428,16 @@ func (p *Peer) setupMfs() error {
 	return nil
 }
 
-func (p *Peer) announceFile(ctx context.Context, ef *ExportFile, shipDir string) error {
+func (p *Peer) addFile(ctx context.Context, ef *ExportFile, shipDir string) (ipld.Node, error) {
 	ll := logger.With("table", ef.TableName, "date", ef.Date.String())
-	ll.Info("announcing export file")
-
-	ll.Debug("adding to ipfs")
 	shipFile := filepath.Join(shipDir, ef.Path())
 	if _, err := os.Stat(shipFile); err != nil {
-		return fmt.Errorf("file %s stat error: %w", shipFile, err)
+		return nil, fmt.Errorf("file %s stat error: %w", shipFile, err)
 	}
 
 	f, err := os.Open(shipFile) // For read access.
 	if err != nil {
-		return fmt.Errorf("open shipped file: %w", err)
+		return nil, fmt.Errorf("open shipped file: %w", err)
 	}
 	defer f.Close()
 
@@ -450,15 +452,15 @@ func (p *Peer) announceFile(ctx context.Context, ef *ExportFile, shipDir string)
 	chnk := chunk.NewRabin(f, 1<<13)
 	dbh, err := dbp.New(chnk)
 	if err != nil {
-		return fmt.Errorf("new dag builder helper: %w", err)
+		return nil, fmt.Errorf("new dag builder helper: %w", err)
 	}
 
 	node, err := trickle.Layout(dbh)
 	if err != nil {
-		return fmt.Errorf("layout dag: %w", err)
+		return nil, fmt.Errorf("layout dag: %w", err)
 	}
+	ll.Debugw("added to ipfs", "cid", node.Cid().String())
 
-	ll.Debug("adding to mfs")
 	mfsPath := filepath.Join("/", ef.Path())
 	mfsDir := filepath.Dir(mfsPath)
 
@@ -469,18 +471,59 @@ func (p *Peer) announceFile(ctx context.Context, ef *ExportFile, shipDir string)
 	}
 
 	if err := mfs.Mkdir(p.mfsRoot, mfsDir, dirOpts); err != nil {
-		return fmt.Errorf("mfs mkdir %s: %w", mfsDir, err)
+		return nil, fmt.Errorf("mfs mkdir %s: %w", mfsDir, err)
 	}
 
 	err = mfs.PutNode(p.mfsRoot, mfsPath, node)
 	if err != nil {
-		return fmt.Errorf("put node %s: %s", mfsPath, err)
+		return nil, fmt.Errorf("put node %s: %s", mfsPath, err)
 	}
 
 	if _, err := mfs.FlushPath(context.TODO(), p.mfsRoot, mfsPath); err != nil {
-		return fmt.Errorf("flush path %s: %s", mfsPath, err)
+		return nil, fmt.Errorf("flush path %s: %s", mfsPath, err)
 	}
 
+	return node, nil
+}
+
+func (p *Peer) rootCid() (cid.Cid, error) {
+	node, err := p.mfsRoot.GetDirectory().GetNode()
+	if err != nil {
+		return cid.Undef, fmt.Errorf("get node: %s", err)
+	}
+
+	return node.Cid(), nil
+}
+
+func (p *Peer) fileExists(ctx context.Context, filePath string) (bool, cid.Cid, error) {
+	fsn, err := mfs.Lookup(p.mfsRoot, filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, cid.Undef, nil
+		}
+		return false, cid.Undef, fmt.Errorf("mfs lookup: %w", err)
+	}
+
+	node, err := fsn.GetNode()
+	if err != nil {
+		return false, cid.Undef, fmt.Errorf("mfs get node: %w", err)
+	}
+
+	return true, node.Cid(), nil
+}
+
+func (p *Peer) provide(ctx context.Context) error {
+	mfsCid, err := p.rootCid()
+	if err != nil {
+		return fmt.Errorf("root cid: %w", err)
+	}
+	logger.Infof("providing root cid: %s", mfsCid.String())
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.reprovider.Provide(mfsCid); err != nil {
+		return fmt.Errorf("root cid: %w", err)
+	}
 	return nil
 }
 
