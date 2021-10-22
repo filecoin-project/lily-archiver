@@ -16,7 +16,7 @@ import (
 	blockservice "github.com/ipfs/go-blockservice"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
-	"github.com/ipfs/go-ds-badger"
+	"github.com/ipfs/go-ds-badger2"
 	"github.com/ipfs/go-filestore"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	"github.com/ipfs/go-ipfs-chunker"
