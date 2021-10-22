@@ -11,11 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/sentinel-visor/commands"
-	"github.com/filecoin-project/sentinel-visor/lens/lily"
-	"github.com/filecoin-project/sentinel-visor/schedule"
+	"github.com/filecoin-project/lily/commands"
+	"github.com/filecoin-project/lily/lens/lily"
+	"github.com/filecoin-project/lily/schedule"
 	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-ipfs-api"
 )
 
 type Table struct {
@@ -387,17 +386,17 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 		}
 		defer closer()
 
-		jobID, err := api.LilyWalk(ctx, walkCfg)
+		jobRes, err := api.LilyWalk(ctx, walkCfg)
 		if err != nil {
 			return fmt.Errorf("failed to create walk: %w", err)
 		}
 
-		ll.Infof("waiting for walk %s with id %d to complete", walkCfg.Name, jobID)
-		if err := WaitUntil(ctx, jobHasEnded(api, jobID), time.Second*30); err != nil {
+		ll.Infof("waiting for walk %s with id %d to complete", walkCfg.Name, jobRes.ID)
+		if err := WaitUntil(ctx, jobHasEnded(api, jobRes.ID), time.Second*30); err != nil {
 			return fmt.Errorf("failed waiting for job to finish: %w", err)
 		}
 
-		jr, err := getJobResult(ctx, api, jobID)
+		jr, err := getJobResult(ctx, api, jobRes.ID)
 		if err != nil {
 			return fmt.Errorf("failed reading job result: %w", err)
 		}
@@ -475,7 +474,7 @@ func timeIsAfter(targetTs int64) func(context.Context) (bool, error) {
 	}
 }
 
-func getJobResult(ctx context.Context, api lily.LilyAPI, id schedule.JobID) (*schedule.JobResult, error) {
+func getJobResult(ctx context.Context, api lily.LilyAPI, id schedule.JobID) (*schedule.JobListResult, error) {
 	jobs, err := api.LilyJobList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list jobs: %w", err)
@@ -499,17 +498,6 @@ type WalkInfo struct {
 // WalkFile returns the path to the file that the walk would write for the given table
 func (w *WalkInfo) WalkFile(table string) string {
 	return filepath.Join(w.Path, fmt.Sprintf("%s-%s.%s", w.Name, table, w.Format))
-}
-
-func ipfsIsAvailable(sh *shell.Shell) func(context.Context) (bool, error) {
-	return func(ctx context.Context) (bool, error) {
-		_, err := sh.ID()
-		if err != nil {
-			return false, nil
-		}
-
-		return true, nil
-	}
 }
 
 // touchExportFiles ensures we have a zero length file for every export we expect from lily

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/filecoin-project/sentinel-visor/model/visor"
+	"github.com/filecoin-project/lily/model/visor"
 )
 
 func verifyExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string) (*VerificationReport, error) {
