@@ -474,7 +474,12 @@ func (p *Peer) addFile(ctx context.Context, ef *ExportFile, shipDir string) (ipl
 		return nil, fmt.Errorf("mfs mkdir %s: %w", mfsDir, err)
 	}
 
-	err = mfs.PutNode(p.mfsRoot, mfsPath, node)
+	dir, err := p.lookupDir(mfsDir)
+	if err != nil {
+		return nil, fmt.Errorf("mfs lookup dir %s: %w", mfsDir, err)
+	}
+
+	err = dir.AddChild(mfsPath, node)
 	if err != nil {
 		return nil, fmt.Errorf("put node %s: %s", mfsPath, err)
 	}
@@ -484,6 +489,36 @@ func (p *Peer) addFile(ctx context.Context, ef *ExportFile, shipDir string) (ipl
 	}
 
 	return node, nil
+}
+
+func (p *Peer) removeFile(ctx context.Context, ef *ExportFile) error {
+	mfsPath := filepath.Join("/", ef.Path())
+	mfsDir := filepath.Dir(mfsPath)
+	dir, err := p.lookupDir(mfsDir)
+	if err != nil {
+		return fmt.Errorf("mfs lookup dir %s: %w", mfsDir, err)
+	}
+
+	err = dir.Unlink(mfsPath)
+	if err != nil {
+		return fmt.Errorf("unlink file %s: %s", mfsPath, err)
+	}
+
+	return nil
+}
+
+func (p *Peer) lookupDir(path string) (*mfs.Directory, error) {
+	di, err := mfs.Lookup(p.mfsRoot, path)
+	if err != nil {
+		return nil, err
+	}
+
+	d, ok := di.(*mfs.Directory)
+	if !ok {
+		return nil, fmt.Errorf("%s is not a directory", path)
+	}
+
+	return d, nil
 }
 
 func (p *Peer) rootCid() (cid.Cid, error) {

@@ -355,6 +355,17 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 	if em.HasUnshippedFiles() {
 		ll.Info("preparing to export files for shipping")
 
+		// Check that files that are not shipped are not announced in ipfs
+		// This can happen if files on disk have been deleted
+		for _, ef := range em.Files {
+			if !ef.Shipped && ef.Announced {
+				// File does not exist on disk but is in ipfs
+				if err := peer.removeFile(ctx, ef); err != nil {
+					return fmt.Errorf("remove announced file: %w", err)
+				}
+			}
+		}
+
 		// We must wait for one full finality after the end of the period before running the export
 		earliestStartTs := HeightToUnix(em.Period.EndHeight+Finality, networkConfig.genesisTs)
 		if time.Now().Unix() < earliestStartTs {
