@@ -479,7 +479,7 @@ func (p *Peer) addFile(ctx context.Context, ef *ExportFile, shipDir string) (ipl
 		return nil, fmt.Errorf("mfs lookup dir %s: %w", mfsDir, err)
 	}
 
-	err = dir.AddChild(mfsPath, node)
+	err = dir.AddChild(ef.Filename(), node)
 	if err != nil {
 		return nil, fmt.Errorf("put node %s: %s", mfsPath, err)
 	}
