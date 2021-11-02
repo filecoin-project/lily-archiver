@@ -273,7 +273,7 @@ var app = &cli.App{
 					Format: "csv",
 				}
 
-				rep, err := verifyTasks(wi, tasklist)
+				rep, err := verifyTasks(cc.Context, wi, tasklist)
 				if err != nil {
 					return fmt.Errorf("verify task: %w", err)
 				}

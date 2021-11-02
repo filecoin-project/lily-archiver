@@ -29,10 +29,10 @@ func verifyExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPa
 		tasklist = append(tasklist, task)
 	}
 
-	return verifyTasks(wi, tasklist)
+	return verifyTasks(ctx, wi, tasklist)
 }
 
-func verifyTasks(wi WalkInfo, tasks []string) (*VerificationReport, error) {
+func verifyTasks(ctx context.Context, wi WalkInfo, tasks []string) (*VerificationReport, error) {
 	consensusPath := wi.WalkFile("chain_consensus")
 	consensusFile, err := os.Open(consensusPath)
 	if err != nil {
