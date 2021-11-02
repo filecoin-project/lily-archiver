@@ -499,7 +499,7 @@ func (p *Peer) removeFile(ctx context.Context, ef *ExportFile) error {
 		return fmt.Errorf("mfs lookup dir %s: %w", mfsDir, err)
 	}
 
-	err = dir.Unlink(mfsPath)
+	err = dir.Unlink(ef.Filename())
 	if err != nil {
 		return fmt.Errorf("unlink file %s: %s", mfsPath, err)
 	}

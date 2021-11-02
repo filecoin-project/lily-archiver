@@ -263,8 +263,13 @@ type ExportFile struct {
 
 // Path returns the path and file name that the export file should be written to.
 func (e *ExportFile) Path() string {
-	filename := fmt.Sprintf("%s-%s.%s.%s", e.TableName, e.Date.String(), e.Format, e.Compression)
+	filename := e.Filename()
 	return filepath.Join(e.Network, strconv.Itoa(e.Schema), e.TableName, strconv.Itoa(e.Date.Year), filename)
+}
+
+// Filename returns file name that the export file should be written to.
+func (e *ExportFile) Filename() string {
+	return fmt.Sprintf("%s-%s.%s.%s", e.TableName, e.Date.String(), e.Format, e.Compression)
 }
 
 func (e *ExportFile) String() string {
