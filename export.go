@@ -425,7 +425,7 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 
 		ll.Info("export complete")
 
-		_, err = verifyTasks(ctx, wi, walkCfg.Tasks)
+		_, err = verifyTasks(ctx, wi, tasksForManifest(em))
 		if err != nil {
 			return fmt.Errorf("failed to verify export files: %w", err)
 		}
