@@ -360,6 +360,7 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 		for _, ef := range em.Files {
 			if !ef.Shipped && ef.Announced {
 				// File does not exist on disk but is in ipfs
+				ll.Infof("unannouncing %s which is not shipped", ef.String())
 				if err := peer.removeFile(ctx, ef); err != nil {
 					return fmt.Errorf("remove announced file: %w", err)
 				}
