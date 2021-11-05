@@ -15,16 +15,17 @@ Archive files for each table are produced daily, covering a 24 hour period from 
 Production will be delayed until at least one finality (900 epochs) after the end of the period. 
 Each archive file is formatted as CSV compressed using gzip.
 
-Archive files are organised in a directory hierarchy following the pattern `network/schema/table/year`
+Archive files are organised in a directory hierarchy following the pattern `network/format/schema/table/year`
 
  - Top level is the network name (for example: mainnet)
- - Second level is the major schema version number being used for the extract (for example: 1)
- - Third level is the name of table (for example: messages)
- - Fourth level is the four digit year (for example: 2021)
+ - Second level is the format of the data (for example: csv)
+ - Third level is the major schema version number being used for the extract (for example: 1)
+ - Fourth level is the name of table (for example: messages)
+ - Fifth level is the four digit year (for example: 2021)
 
 File names in each directory use following pattern: `table-year-month-day.format.compression`
 
-Example of file in directory hierarchy: `mainnet/1/messages/2021/messages-2021-08-02.csv.gz`
+Example of file in directory hierarchy: `mainnet/csv/1/messages/2021/messages-2021-08-02.csv.gz`
 
 
 ## Notes

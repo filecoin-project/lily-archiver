@@ -264,7 +264,7 @@ type ExportFile struct {
 // Path returns the path and file name that the export file should be written to.
 func (e *ExportFile) Path() string {
 	filename := e.Filename()
-	return filepath.Join(e.Network, strconv.Itoa(e.Schema), e.TableName, strconv.Itoa(e.Date.Year), filename)
+	return filepath.Join(e.Network, e.Format, strconv.Itoa(e.Schema), e.TableName, strconv.Itoa(e.Date.Year), filename)
 }
 
 // Filename returns file name that the export file should be written to.
