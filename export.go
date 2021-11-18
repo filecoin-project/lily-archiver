@@ -86,6 +86,8 @@ func init() {
 	}
 }
 
+var ErrJobNotFound = errors.New("job not found")
+
 type ExportManifest struct {
 	Period  ExportPeriod
 	Network string
@@ -377,7 +379,7 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 		if time.Now().Unix() < earliestStartTs {
 			ll.Infof("cannot start export until %s", time.Unix(earliestStartTs, 0).UTC().Format(time.RFC3339))
 		}
-		if err := WaitUntil(ctx, timeIsAfter(earliestStartTs), time.Second*30); err != nil {
+		if err := WaitUntil(ctx, timeIsAfter(earliestStartTs), 0, time.Second*30); err != nil {
 			return fmt.Errorf("failed waiting for earliest export time: %w", err)
 		}
 
@@ -397,34 +399,29 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 			return fmt.Errorf("failed to touch export files: %w", err)
 		}
 
-		api, closer, err := commands.GetAPI(ctx, lilyConfig.apiAddr, lilyConfig.apiToken)
-		if err != nil {
-			return fmt.Errorf("could not access lily api: %w", err)
-		}
-		defer closer()
-
-		jobRes, err := api.LilyWalk(ctx, walkCfg)
-		if err != nil {
-			return fmt.Errorf("failed to create walk: %w", err)
+		var jobRes schedule.JobSubmitResult
+		ll.Infof("starting walk %s", walkCfg.Name)
+		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobRes), 0, time.Second*30); err != nil {
+			return fmt.Errorf("failed starting job: %w", err)
 		}
 
 		ll.Infof("waiting for walk %s with id %d to complete", walkCfg.Name, jobRes.ID)
-		if err := WaitUntil(ctx, jobHasEnded(api, jobRes.ID), time.Second*30); err != nil {
+		if err := WaitUntil(ctx, jobHasEnded(lilyConfig.apiAddr, lilyConfig.apiToken, jobRes.ID), time.Second*30, time.Second*30); err != nil {
 			return fmt.Errorf("failed waiting for job to finish: %w", err)
 		}
 
-		jr, err := getJobResult(ctx, api, jobRes.ID)
-		if err != nil {
-			return fmt.Errorf("failed reading job result: %w", err)
+		var jobListRes schedule.JobListResult
+		ll.Infof("reading job result for walk %s with id %d", walkCfg.Name, jobRes.ID)
+		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.Name, jobRes.ID, &jobListRes), 0, time.Second*30); err != nil {
+			return fmt.Errorf("failed waiting for job to finish: %w", err)
 		}
 
-		if jr.Error != "" {
-			// TODO: retry
-			return fmt.Errorf("job failed with error: %s", jr.Error)
+		if jobListRes.Error != "" {
+			// TODO: retry walk
+			return fmt.Errorf("job failed with error: %s", jobListRes.Error)
 		}
 
 		ll.Info("export complete")
-
 		_, err = verifyTasks(ctx, wi, tasksForManifest(em))
 		if err != nil {
 			return fmt.Errorf("failed to verify export files: %w", err)
@@ -470,16 +467,68 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 	return nil
 }
 
-func jobHasEnded(api lily.LilyAPI, id schedule.JobID) func(context.Context) (bool, error) {
+func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID) func(context.Context) (bool, error) {
+	// To ensure this is robust in the case of a lily node restarting or being temporarily unresponsive, this
+	// function opens its own api connection and never returns an error unless the job cannot be found
 	return func(ctx context.Context) (bool, error) {
+		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+		if err != nil {
+			logger.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
+			return false, nil
+		}
+		defer closer()
+
 		jr, err := getJobResult(ctx, api, id)
 		if err != nil {
-			return false, err
+			if errors.Is(err, ErrJobNotFound) {
+				return false, err
+			}
+			logger.Errorf("failed to get job result for id %d: %v (%T)", id, err, err)
+			return false, nil
 		}
 
 		if jr.Running {
 			return false, nil
 		}
+		return true, nil
+	}
+}
+
+func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkConfig, jobRes *schedule.JobSubmitResult) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+		if err != nil {
+			logger.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
+			return false, nil
+		}
+		defer closer()
+
+		res, err := api.LilyWalk(ctx, walkCfg)
+		if err != nil {
+			logger.Errorf("failed to create walk %s: %v", walkCfg.Name, err)
+			return false, nil
+		}
+
+		*jobRes = *res
+		return true, nil
+	}
+}
+
+func jobGetResult(apiAddr string, apiToken string, walkName string, walkID schedule.JobID, jobListRes *schedule.JobListResult) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+		if err != nil {
+			logger.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
+			return false, nil
+		}
+		defer closer()
+
+		res, err := getJobResult(ctx, api, walkID)
+		if err != nil {
+			logger.Errorf("failed reading job result for walk %s with id %d: %v", walkName, walkID, err)
+			return false, nil
+		}
+		*jobListRes = *res
 		return true, nil
 	}
 }
@@ -503,7 +552,7 @@ func getJobResult(ctx context.Context, api lily.LilyAPI, id schedule.JobID) (*sc
 		}
 	}
 
-	return nil, fmt.Errorf("job %d not found", id)
+	return nil, ErrJobNotFound
 }
 
 type WalkInfo struct {

@@ -5,7 +5,11 @@ import (
 	"time"
 )
 
-func WaitUntil(ctx context.Context, condition func(context.Context) (bool, error), interval time.Duration) error {
+func WaitUntil(ctx context.Context, condition func(context.Context) (bool, error), delay time.Duration, interval time.Duration) error {
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 
