@@ -387,7 +387,8 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 		if err != nil {
 			return fmt.Errorf("build walk for yesterday: %w", err)
 		}
-		ll.Debugf("using tasks %s", strings.Join(walkCfg.Tasks, ","))
+		llw := ll.With("walk", walkCfg.Name)
+		llw.Debugf("using tasks %s", strings.Join(walkCfg.Tasks, ","))
 
 		wi := WalkInfo{
 			Name:   walkCfg.Name,
@@ -399,26 +400,8 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 			return fmt.Errorf("failed to touch export files: %w", err)
 		}
 
-		var jobRes schedule.JobSubmitResult
-		ll.Infof("starting walk %s", walkCfg.Name)
-		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobRes), 0, time.Second*30); err != nil {
-			return fmt.Errorf("failed starting job: %w", err)
-		}
-
-		ll.Infof("waiting for walk %s with id %d to complete", walkCfg.Name, jobRes.ID)
-		if err := WaitUntil(ctx, jobHasEnded(lilyConfig.apiAddr, lilyConfig.apiToken, jobRes.ID), time.Second*30, time.Second*30); err != nil {
-			return fmt.Errorf("failed waiting for job to finish: %w", err)
-		}
-
-		var jobListRes schedule.JobListResult
-		ll.Infof("reading job result for walk %s with id %d", walkCfg.Name, jobRes.ID)
-		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.Name, jobRes.ID, &jobListRes), 0, time.Second*30); err != nil {
-			return fmt.Errorf("failed waiting for job to finish: %w", err)
-		}
-
-		if jobListRes.Error != "" {
-			// TODO: retry walk
-			return fmt.Errorf("job failed with error: %s", jobListRes.Error)
+		if err := WaitUntil(ctx, walkIsCompleted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, llw), 0, time.Second*30); err != nil {
+			return fmt.Errorf("failed performing walk: %w", err)
 		}
 
 		ll.Info("export complete")
@@ -467,13 +450,53 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 	return nil
 }
 
-func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID) func(context.Context) (bool, error) {
+type basicLogger interface {
+	Info(...interface{})
+	Infof(string, ...interface{})
+	Debug(...interface{})
+	Debugf(string, ...interface{})
+	Error(...interface{})
+	Errorf(string, ...interface{})
+}
+
+func walkIsCompleted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkConfig, ll basicLogger) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		var jobRes schedule.JobSubmitResult
+		ll.Infof("starting walk")
+		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobRes, ll), 0, time.Second*30); err != nil {
+			ll.Errorf("failed starting walk: %v", err)
+			return false, nil
+		}
+
+		ll.Infof("waiting for walk %s with id %d to complete", walkCfg.Name, jobRes.ID)
+		if err := WaitUntil(ctx, jobHasEnded(lilyConfig.apiAddr, lilyConfig.apiToken, jobRes.ID, ll), time.Second*30, time.Second*30); err != nil {
+			ll.Errorf("failed waiting for walk to finish: %v", err)
+			return false, nil
+		}
+
+		var jobListRes schedule.JobListResult
+		ll.Infof("reading job result for walk %s with id %d", walkCfg.Name, jobRes.ID)
+		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.Name, jobRes.ID, &jobListRes, ll), 0, time.Second*30); err != nil {
+			ll.Errorf("failed getting walk result: %v", err)
+			return false, nil
+		}
+
+		if jobListRes.Error != "" {
+			ll.Errorf("walk failed: %v", jobListRes.Error)
+			return false, nil
+		}
+
+		return true, nil
+	}
+}
+
+func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID, ll basicLogger) func(context.Context) (bool, error) {
 	// To ensure this is robust in the case of a lily node restarting or being temporarily unresponsive, this
 	// function opens its own api connection and never returns an error unless the job cannot be found
 	return func(ctx context.Context) (bool, error) {
 		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
 		if err != nil {
-			logger.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
+			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
 			return false, nil
 		}
 		defer closer()
@@ -483,7 +506,7 @@ func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID) func(contex
 			if errors.Is(err, ErrJobNotFound) {
 				return false, err
 			}
-			logger.Errorf("failed to get job result for id %d: %v (%T)", id, err, err)
+			ll.Errorf("failed to get job result for id %d: %v (%T)", id, err, err)
 			return false, nil
 		}
 
@@ -494,18 +517,18 @@ func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID) func(contex
 	}
 }
 
-func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkConfig, jobRes *schedule.JobSubmitResult) func(context.Context) (bool, error) {
+func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkConfig, jobRes *schedule.JobSubmitResult, ll basicLogger) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
 		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
 		if err != nil {
-			logger.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
+			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
 			return false, nil
 		}
 		defer closer()
 
 		res, err := api.LilyWalk(ctx, walkCfg)
 		if err != nil {
-			logger.Errorf("failed to create walk %s: %v", walkCfg.Name, err)
+			ll.Errorf("failed to create walk %s: %v", walkCfg.Name, err)
 			return false, nil
 		}
 
@@ -514,18 +537,18 @@ func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkCo
 	}
 }
 
-func jobGetResult(apiAddr string, apiToken string, walkName string, walkID schedule.JobID, jobListRes *schedule.JobListResult) func(context.Context) (bool, error) {
+func jobGetResult(apiAddr string, apiToken string, walkName string, walkID schedule.JobID, jobListRes *schedule.JobListResult, ll basicLogger) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
 		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
 		if err != nil {
-			logger.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
+			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
 			return false, nil
 		}
 		defer closer()
 
 		res, err := getJobResult(ctx, api, walkID)
 		if err != nil {
-			logger.Errorf("failed reading job result for walk %s with id %d: %v", walkName, walkID, err)
+			ll.Errorf("failed reading job result for walk %s with id %d: %v", walkName, walkID, err)
 			return false, nil
 		}
 		*jobListRes = *res
