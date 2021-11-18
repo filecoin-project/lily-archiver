@@ -383,29 +383,14 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 			return fmt.Errorf("failed waiting for earliest export time: %w", err)
 		}
 
-		walkCfg, err := walkForManifest(em)
-		if err != nil {
-			return fmt.Errorf("build walk for yesterday: %w", err)
-		}
-		llw := ll.With("walk", walkCfg.Name)
-		llw.Debugf("using tasks %s", strings.Join(walkCfg.Tasks, ","))
-
-		wi := WalkInfo{
-			Name:   walkCfg.Name,
-			Path:   storageConfig.path,
-			Format: "csv",
-		}
-		err = touchExportFiles(ctx, em, wi)
-		if err != nil {
-			return fmt.Errorf("failed to touch export files: %w", err)
-		}
-
-		if err := WaitUntil(ctx, walkIsCompleted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, llw), 0, time.Second*30); err != nil {
+		var wi WalkInfo
+		if err := WaitUntil(ctx, walkIsCompleted(lilyConfig.apiAddr, lilyConfig.apiToken, em, &wi, ll), 0, time.Second*30); err != nil {
 			return fmt.Errorf("failed performing walk: %w", err)
 		}
 
+		// TODO: retry
 		ll.Info("export complete")
-		_, err = verifyTasks(ctx, wi, tasksForManifest(em))
+		_, err := verifyTasks(ctx, wi, tasksForManifest(em))
 		if err != nil {
 			return fmt.Errorf("failed to verify export files: %w", err)
 		}
@@ -453,39 +438,61 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string, p
 type basicLogger interface {
 	Info(...interface{})
 	Infof(string, ...interface{})
+	Infow(string, ...interface{})
 	Debug(...interface{})
 	Debugf(string, ...interface{})
+	Debugw(string, ...interface{})
 	Error(...interface{})
 	Errorf(string, ...interface{})
+	Errorw(string, ...interface{})
 }
 
-func walkIsCompleted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkConfig, ll basicLogger) func(context.Context) (bool, error) {
+func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkInfo *WalkInfo, ll basicLogger) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
+		walkCfg, err := walkForManifest(em)
+		if err != nil {
+			ll.Errorf("failed to create walk configuration: %v")
+			return false, nil
+		}
+		ll.Debugw(fmt.Sprintf("using tasks %s", strings.Join(walkCfg.Tasks, ",")), "walk", walkCfg.Name)
+
+		wi := WalkInfo{
+			Name:   walkCfg.Name,
+			Path:   storageConfig.path,
+			Format: "csv",
+		}
+		err = touchExportFiles(ctx, em, wi)
+		if err != nil {
+			ll.Errorw(fmt.Sprintf("failed to touch export files: %v", err), "walk", walkCfg.Name)
+			return false, nil
+		}
+
 		var jobRes schedule.JobSubmitResult
-		ll.Infof("starting walk")
+		ll.Infow("starting walk", "walk", walkCfg.Name)
 		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobRes, ll), 0, time.Second*30); err != nil {
-			ll.Errorf("failed starting walk: %v", err)
+			ll.Errorw(fmt.Sprintf("failed starting walk: %v", err), "walk", walkCfg.Name)
 			return false, nil
 		}
 
-		ll.Infof("waiting for walk %s with id %d to complete", walkCfg.Name, jobRes.ID)
+		ll.Infow("waiting for walk to complete", "walk", walkCfg.Name, "job_id", jobRes.ID)
 		if err := WaitUntil(ctx, jobHasEnded(lilyConfig.apiAddr, lilyConfig.apiToken, jobRes.ID, ll), time.Second*30, time.Second*30); err != nil {
-			ll.Errorf("failed waiting for walk to finish: %v", err)
+			ll.Errorw(fmt.Sprintf("failed waiting for walk to finish: %v", err), "walk", walkCfg.Name, "job_id", jobRes.ID)
 			return false, nil
 		}
 
+		ll.Infow("walk complete", "walk", walkCfg.Name, "job_id", jobRes.ID)
 		var jobListRes schedule.JobListResult
-		ll.Infof("reading job result for walk %s with id %d", walkCfg.Name, jobRes.ID)
 		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.Name, jobRes.ID, &jobListRes, ll), 0, time.Second*30); err != nil {
-			ll.Errorf("failed getting walk result: %v", err)
+			ll.Errorw(fmt.Sprintf("failed waiting walk result: %v", err), "walk", walkCfg.Name, "job_id", jobRes.ID)
 			return false, nil
 		}
 
 		if jobListRes.Error != "" {
-			ll.Errorf("walk failed: %v", jobListRes.Error)
+			ll.Errorw(fmt.Sprintf("walk failed: %s", jobListRes.Error), "walk", walkCfg.Name, "job_id", jobRes.ID)
 			return false, nil
 		}
 
+		*walkInfo = wi
 		return true, nil
 	}
 }
