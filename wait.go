@@ -9,6 +9,13 @@ func WaitUntil(ctx context.Context, condition func(context.Context) (bool, error
 	if delay > 0 {
 		time.Sleep(delay)
 	}
+	done, err := condition(ctx)
+	if err != nil {
+		return err
+	}
+	if done {
+		return nil
+	}
 
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
