@@ -94,7 +94,7 @@ type ExportManifest struct {
 	Files   []*ExportFile
 }
 
-func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, peer *Peer) (*ExportManifest, error) {
+func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table) (*ExportManifest, error) {
 	p := firstExportPeriod(genesisTs)
 
 	if p.Date.After(d) {
@@ -106,10 +106,10 @@ func manifestForDate(ctx context.Context, d Date, network string, genesisTs int6
 		p = p.Next()
 	}
 
-	return manifestForPeriod(ctx, p, network, genesisTs, outputPath, schemaVersion, allowedTables, peer)
+	return manifestForPeriod(ctx, p, network, genesisTs, outputPath, schemaVersion, allowedTables)
 }
 
-func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table, peer *Peer) (*ExportManifest, error) {
+func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table) (*ExportManifest, error) {
 	em := &ExportManifest{
 		Period:  p,
 		Network: network,
@@ -135,7 +135,6 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 			Format:      "csv", // hardcoded for now
 			Compression: "gz",  // hardcoded for now
 			Shipped:     true,
-			Announced:   false,
 			Cid:         cid.Undef,
 		}
 
@@ -147,13 +146,6 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 				return nil, fmt.Errorf("stat: %w", err)
 			}
 		}
-
-		exists, fcid, err := peer.fileExists(ctx, filepath.Join("/", f.Path()))
-		if err != nil {
-			return nil, fmt.Errorf("mfs file exists: %w", err)
-		}
-		f.Announced = exists
-		f.Cid = fcid
 
 		em.Files = append(em.Files, &f)
 	}
@@ -185,15 +177,6 @@ func (em *ExportManifest) FilterTables(allowed []Table) *ExportManifest {
 func (em *ExportManifest) HasUnshippedFiles() bool {
 	for _, f := range em.Files {
 		if !f.Shipped {
-			return true
-		}
-	}
-	return false
-}
-
-func (em *ExportManifest) HasUnannouncedFiles() bool {
-	for _, f := range em.Files {
-		if !f.Announced {
 			return true
 		}
 	}
@@ -259,7 +242,6 @@ type ExportFile struct {
 	Format      string
 	Compression string
 	Shipped     bool // Shipped indicates that the file has been compressed and placed in the shared filesystem
-	Announced   bool // Announced indicates that the file has added to IPFS
 	Cid         cid.Cid
 }
 
@@ -351,85 +333,45 @@ func exportFilePath(exportPath, prefix, name string) string {
 	return filepath.Join(exportPath, fmt.Sprintf("%s-%s.csv", prefix, name))
 }
 
-func processExport(ctx context.Context, em *ExportManifest, outputPath string, peer *Peer) error {
+func processExport(ctx context.Context, em *ExportManifest, outputPath string) error {
 	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 
-	if !em.HasUnshippedFiles() && !em.HasUnannouncedFiles() {
-		ll.Info("all files shipped and announced, nothing to do")
+	if !em.HasUnshippedFiles() {
+		ll.Info("all files shipped, nothing to do")
 		return nil
 	}
 
-	if em.HasUnshippedFiles() {
-		ll.Info("preparing to export files for shipping")
+	ll.Info("preparing to export files for shipping")
 
-		// Check that files that are not shipped are not announced in ipfs
-		// This can happen if files on disk have been deleted
-		for _, ef := range em.Files {
-			if !ef.Shipped && ef.Announced {
-				// File does not exist on disk but is in ipfs
-				ll.Infof("unannouncing %s which is not shipped", ef.String())
-				if err := peer.removeFile(ctx, ef); err != nil {
-					return fmt.Errorf("remove announced file: %w", err)
-				}
-			}
-		}
-
-		// We must wait for one full finality after the end of the period before running the export
-		earliestStartTs := HeightToUnix(em.Period.EndHeight+Finality, networkConfig.genesisTs)
-		if time.Now().Unix() < earliestStartTs {
-			ll.Infof("cannot start export until %s", time.Unix(earliestStartTs, 0).UTC().Format(time.RFC3339))
-		}
-		if err := WaitUntil(ctx, timeIsAfter(earliestStartTs), 0, time.Second*30); err != nil {
-			return fmt.Errorf("failed waiting for earliest export time: %w", err)
-		}
-
-		var wi WalkInfo
-		if err := WaitUntil(ctx, walkIsCompleted(lilyConfig.apiAddr, lilyConfig.apiToken, em, &wi, ll), 0, time.Second*30); err != nil {
-			return fmt.Errorf("failed performing walk: %w", err)
-		}
-
-		// TODO: retry
-		ll.Info("export complete")
-		_, err := verifyTasks(ctx, wi, tasksForManifest(em))
-		if err != nil {
-			return fmt.Errorf("failed to verify export files: %w", err)
-		}
-
-		err = shipExport(ctx, em, wi, outputPath)
-		if err != nil {
-			return fmt.Errorf("failed to ship export files: %w", err)
-		}
-
-		err = removeExportFiles(ctx, em, wi)
-		if err != nil {
-			return fmt.Errorf("failed to remove export files: %w", err)
-		}
-
+	// We must wait for one full finality after the end of the period before running the export
+	earliestStartTs := HeightToUnix(em.Period.EndHeight+Finality, networkConfig.genesisTs)
+	if time.Now().Unix() < earliestStartTs {
+		ll.Infof("cannot start export until %s", time.Unix(earliestStartTs, 0).UTC().Format(time.RFC3339))
+	}
+	if err := WaitUntil(ctx, timeIsAfter(earliestStartTs), 0, time.Second*30); err != nil {
+		return fmt.Errorf("failed waiting for earliest export time: %w", err)
 	}
 
-	if em.HasUnannouncedFiles() {
-		ll.Info("announcing shipped files")
-
-		for _, ef := range em.Files {
-			if ef.Announced {
-				continue
-			}
-			_, err := peer.addFile(ctx, ef, outputPath)
-			if err != nil {
-				return fmt.Errorf("add file: %w", err)
-			}
-		}
-
-		mfsCid, err := peer.rootCid()
-		if err != nil {
-			return fmt.Errorf("root cid: %w", err)
-		}
-		logger.Infof("new root cid: %s", mfsCid.String())
-
+	var wi WalkInfo
+	if err := WaitUntil(ctx, walkIsCompleted(lilyConfig.apiAddr, lilyConfig.apiToken, em, &wi, ll), 0, time.Second*30); err != nil {
+		return fmt.Errorf("failed performing walk: %w", err)
 	}
 
-	if err := peer.provide(ctx); err != nil {
-		return fmt.Errorf("provide: %w", err)
+	// TODO: retry
+	ll.Info("export complete")
+	_, err := verifyTasks(ctx, wi, tasksForManifest(em))
+	if err != nil {
+		return fmt.Errorf("failed to verify export files: %w", err)
+	}
+
+	err = shipExport(ctx, em, wi, outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to ship export files: %w", err)
+	}
+
+	err = removeExportFiles(ctx, em, wi)
+	if err != nil {
+		return fmt.Errorf("failed to remove export files: %w", err)
 	}
 
 	return nil

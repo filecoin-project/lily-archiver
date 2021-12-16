@@ -44,7 +44,6 @@ var app = &cli.App{
 				networkFlags,
 				lilyFlags,
 				storageFlags,
-				ipfsFlags,
 				[]cli.Flag{
 					&cli.StringFlag{
 						Name:  "output",
@@ -89,23 +88,14 @@ var app = &cli.App{
 					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
-				peer, err := NewPeer(&PeerConfig{
-					ListenAddr:    ipfsConfig.listenAddr,
-					DatastorePath: ipfsConfig.datastorePath,
-					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
-				})
-				if err != nil {
-					return fmt.Errorf("new ipfs peer: %w", err)
-				}
-
 				p := firstExportPeriodAfter(cc.Int64("min-height"), networkConfig.genesisTs)
 				for {
-					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables, peer)
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables)
 					if err != nil {
 						return fmt.Errorf("failed to create manifest for %s: %w", p.Date.String(), err)
 					}
 
-					if err := processExport(ctx, em, cc.String("output"), peer); err != nil {
+					if err := processExport(ctx, em, cc.String("output")); err != nil {
 						return fmt.Errorf("failed to process export for %s: %w", p.Date.String(), err)
 					}
 
@@ -122,7 +112,6 @@ var app = &cli.App{
 				loggingFlags,
 				networkFlags,
 				storageFlags,
-				ipfsFlags,
 				[]cli.Flag{
 					&cli.StringFlag{
 						Name:  "output",
@@ -132,11 +121,6 @@ var app = &cli.App{
 					&cli.BoolFlag{
 						Name:  "shipped",
 						Usage: "Include files that have been shipped.",
-						Value: false,
-					},
-					&cli.BoolFlag{
-						Name:  "announced",
-						Usage: "Include files that have been announced on IPFS.",
 						Value: false,
 					},
 					&cli.StringFlag{
@@ -169,17 +153,7 @@ var app = &cli.App{
 					}
 				}
 
-				peer, err := NewPeer(&PeerConfig{
-					ListenAddr:    ipfsConfig.listenAddr,
-					DatastorePath: ipfsConfig.datastorePath,
-					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
-				})
-				if err != nil {
-					return fmt.Errorf("new ipfs peer: %w", err)
-				}
-
 				includeShipped := cc.Bool("shipped")
-				includeAnnounced := cc.Bool("announced")
 
 				current := CurrentHeight(networkConfig.genesisTs)
 
@@ -192,7 +166,7 @@ var app = &cli.App{
 						continue
 					}
 
-					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList, peer)
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList)
 					if err != nil {
 						return fmt.Errorf("build manifest for period: %w", err)
 					}
@@ -209,18 +183,7 @@ var app = &cli.App{
 							desc += "\t" + ef.Path()
 						}
 
-						announced := "x"
-						if ef.Announced {
-							if !includeAnnounced {
-								continue
-							}
-							announced = "A"
-							desc += "\t" + ef.Cid.String()
-						}
-
-						if includeAnnounced {
-							fmt.Printf("%s%s %s\n", shipped, announced, desc)
-						}
+						fmt.Printf("%s %s\n", shipped, desc)
 					}
 
 				}
@@ -324,7 +287,6 @@ var app = &cli.App{
 				loggingFlags,
 				storageFlags,
 				networkFlags,
-				ipfsFlags,
 				[]cli.Flag{
 					&cli.StringFlag{
 						Name:     "tables",
@@ -395,93 +357,6 @@ var app = &cli.App{
 						return fmt.Errorf("ship file: %w", err)
 					}
 				}
-				return nil
-			},
-		},
-
-		{
-			Name:   "announce",
-			Usage:  "Announce shipped files.",
-			Before: configure,
-			Flags: flagSet(
-				loggingFlags,
-				storageFlags,
-				networkFlags,
-				ipfsFlags,
-				[]cli.Flag{
-					&cli.StringFlag{
-						Name:     "tables",
-						Usage:    "Tables to ship, comma separated.",
-						Required: true,
-					},
-					&cli.StringFlag{
-						Name:  "name",
-						Usage: "Name of the export.",
-						Value: "export-1005360-1008239", // TODO: remove default
-					},
-					&cli.StringFlag{
-						Name:     "date",
-						Usage:    "Date covered by the export.",
-						Required: true,
-					},
-					&cli.StringFlag{
-						Name:  "output",
-						Usage: "Path to write output files.",
-						Value: "/data/filecoin/archiver/shipped", // TODO: remove default
-					},
-					&cli.StringFlag{
-						Name:   "compression",
-						Usage:  "Type of compression used.",
-						Value:  "gz",
-						Hidden: true,
-					},
-				},
-			),
-			Action: func(cc *cli.Context) error {
-				c, ok := CompressionByName[cc.String("compression")]
-				if !ok {
-					return fmt.Errorf("unknown compression %q", cc.String("compression"))
-				}
-
-				dt, err := DateFromString(cc.String("date"))
-				if err != nil {
-					return fmt.Errorf("invalid date: %w", err)
-				}
-
-				peer, err := NewPeer(&PeerConfig{
-					ListenAddr:    ipfsConfig.listenAddr,
-					DatastorePath: ipfsConfig.datastorePath,
-					Libp2pKeyFile: ipfsConfig.libp2pKeyfile,
-				})
-				if err != nil {
-					return fmt.Errorf("new ipfs peer: %w", err)
-				}
-
-				tables := strings.Split(cc.String("tables"), ",")
-				for _, table := range tables {
-					if _, ok := TablesByName[table]; !ok {
-						return fmt.Errorf("unknown table %q", table)
-					}
-
-					ef := ExportFile{
-						Date:        dt,
-						Schema:      storageConfig.schemaVersion,
-						Network:     networkConfig.name,
-						TableName:   table,
-						Format:      "csv",
-						Compression: c.Extension,
-					}
-
-					_, err := peer.addFile(cc.Context, &ef, cc.String("output"))
-					if err != nil {
-						return fmt.Errorf("add file: %w", err)
-					}
-				}
-
-				if err := peer.provide(cc.Context); err != nil {
-					return fmt.Errorf("provide: %w", err)
-				}
-
 				return nil
 			},
 		},

@@ -49,10 +49,6 @@ func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath
 		if err := shipFile(ctx, ef, wi, outputPath); err != nil {
 			return err
 		}
-
-		// Ensure that each newly shipped file is marked for announcement. In future we could
-		// avoid doing this if we know file has not changed (e.g. was just regenerated)
-		ef.Announced = false
 	}
 
 	return nil

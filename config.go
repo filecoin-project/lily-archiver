@@ -100,35 +100,6 @@ var (
 	}
 )
 
-var (
-	ipfsConfig struct {
-		listenAddr    string
-		datastorePath string
-		libp2pKeyfile string
-	}
-
-	ipfsFlags = []cli.Flag{
-		&cli.StringFlag{
-			Name:        "ipfs-datastore",
-			Usage:       "Path to IPFS datastore.",
-			Value:       "/mnt/disk1/data/ipfs/store", // TODO: remove default
-			Destination: &ipfsConfig.datastorePath,
-		},
-		&cli.StringFlag{
-			Name:        "ipfs-addr",
-			Usage:       "Multiaddress IPFS node should listen on.",
-			Value:       "/ip4/0.0.0.0/tcp/4005",
-			Destination: &ipfsConfig.listenAddr,
-		},
-		&cli.StringFlag{
-			Name:        "ipfs-keyfile",
-			Usage:       "Path to libp2p key file.",
-			Value:       "/mnt/disk1/data/ipfs/peer.key",
-			Destination: &ipfsConfig.libp2pKeyfile,
-		},
-	}
-)
-
 func configure(_ *cli.Context) error {
 	if err := logging.SetLogLevel("archiver", loggingConfig.level); err != nil {
 		return fmt.Errorf("invalid log level: %w", err)
