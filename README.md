@@ -27,10 +27,41 @@ File names in each directory use following pattern: `table-year-month-day.format
 
 Example of file in directory hierarchy: `mainnet/csv/1/messages/2021/messages-2021-08-02.csv.gz`
 
+## Outline of Operation
+
+Sentinel Archiver needs to be paired with a Lily node which it will use to extract data by running walk jobs.
+It produces archive files by executing walks against the Lily node, verifying the files produced do not contain errors and then compressing and shipping to the final archive location.
+
+The `run` command starts the archiver as a long running daemon that will attempt to maintain a complete archive of the Filecoin chain.
+
+On startup the archiver scans the files that have been shipped so far to determine whether there are any missing archive files that need to be reprocessed.
+If it finds one or more missing files for a day it prepares a walk with the appropriate tasks and height range, submits it to Lily and waits for the walk to complete.
+If all files are present the archiver will wait until it is allowed to process the current day's data. 
+The earliest this may happen is one finality (900 epochs) after midnight (which is about 7:30AM).
+
+## Running
+
+The `run` command accepts several flags that may be used to configure the behaviour of the archiver.
+
+ - `--ship-path` must be set to the root directory where the final archive files will be written. The archiver will create the necessary file hierachy beneath this directory (i.e. `<ship path>/network/format/schema/table/year`)
+ - `--storage-name` must be set to the name of a file storage defined in the [Lily config file](https://lilium.sh/lily/setup.html#storage-definitions). If the section in the config file is `[Storage.File.CSV]` then the name will be `CSV`.
+ - `--storage-path` must be set to the directory where Lily writes its output files. This is the path assigned to the named file storage in the [Lily config file](https://lilium.sh/lily/setup.html#storage-definitions).
+ - `--tasks` may optionally be set to limit the tasks that this instance is responsible for. By default all known tasks will be run. Responsibility for different tasks may be split between multiple instances of the archiver by specifying a different subset of tasks for each one.
+ - `--min-height` may be used to instruct the archiver to only consider archives after a certain epoch. This can be used to operate against a Lily node that only contains a partial history of the network, such as one initialised from a car export.
+
+By default the archiver assumes it is operating against mainnet. The following flags may be used to configure it to operate against an alternate network. Note that these flags are hidden from the help output since they are rarely needed.
+It is crucial that the Lily node paired with the archiver must have been built specifically for the selected network. Consult the [lily documentation](https://lilium.sh/lily/setup.html#build) for instructions on how to do this. 
+
+ - `--network` must be set to the name of the network. This is only used to determine the name of the directory in which shipped files should be placed.
+ - `--genesis-ts` must be set to the UNIX timestamp of the genesis of the alternate network. This may vary depending on when the network was created. 
+
+If Lily is restarted or becomes unavailable during a walk, the archiver will wait until it is back online and resubmit the walk.
+
+The archiver may be also restarted while a walk is in progress and it will attempt to find the correct one to wait for when it starts.
 
 ## Notes
 
-The dates for naaming archive files are calculated using UTC and start at midnight.
+The dates for naming archive files are calculated using UTC and start at midnight.
 
 Archive files files do not contain a header row so multiple CSV files for the same table can simply be concatenated.
 A file for each table containing a single header row will be published in the top level schema directory. 
