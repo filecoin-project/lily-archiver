@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -458,28 +459,28 @@ func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkIn
 			return false, nil
 		}
 
-		var jobRes schedule.JobSubmitResult
+		var jobID schedule.JobID
 		ll.Infow("starting walk", "walk", walkCfg.Name)
-		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobRes, ll), 0, time.Second*30); err != nil {
+		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobID, ll), 0, time.Second*30); err != nil {
 			ll.Errorw(fmt.Sprintf("failed starting walk: %v", err), "walk", walkCfg.Name)
 			return false, nil
 		}
 
-		ll.Infow("waiting for walk to complete", "walk", walkCfg.Name, "job_id", jobRes.ID)
-		if err := WaitUntil(ctx, jobHasEnded(lilyConfig.apiAddr, lilyConfig.apiToken, jobRes.ID, ll), time.Second*30, time.Second*30); err != nil {
-			ll.Errorw(fmt.Sprintf("failed waiting for walk to finish: %v", err), "walk", walkCfg.Name, "job_id", jobRes.ID)
+		ll.Infow("waiting for walk to complete", "walk", walkCfg.Name, "job_id", jobID)
+		if err := WaitUntil(ctx, jobHasEnded(lilyConfig.apiAddr, lilyConfig.apiToken, jobID, ll), time.Second*30, time.Second*30); err != nil {
+			ll.Errorw(fmt.Sprintf("failed waiting for walk to finish: %v", err), "walk", walkCfg.Name, "job_id", jobID)
 			return false, nil
 		}
 
-		ll.Infow("walk complete", "walk", walkCfg.Name, "job_id", jobRes.ID)
+		ll.Infow("walk complete", "walk", walkCfg.Name, "job_id", jobID)
 		var jobListRes schedule.JobListResult
-		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.Name, jobRes.ID, &jobListRes, ll), 0, time.Second*30); err != nil {
-			ll.Errorw(fmt.Sprintf("failed waiting walk result: %v", err), "walk", walkCfg.Name, "job_id", jobRes.ID)
+		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.Name, jobID, &jobListRes, ll), 0, time.Second*30); err != nil {
+			ll.Errorw(fmt.Sprintf("failed waiting walk result: %v", err), "walk", walkCfg.Name, "job_id", jobID)
 			return false, nil
 		}
 
 		if jobListRes.Error != "" {
-			ll.Errorw(fmt.Sprintf("walk failed: %s", jobListRes.Error), "walk", walkCfg.Name, "job_id", jobRes.ID)
+			ll.Errorw(fmt.Sprintf("walk failed: %s", jobListRes.Error), "walk", walkCfg.Name, "job_id", jobID)
 			return false, nil
 		}
 
@@ -504,7 +505,7 @@ func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID, ll basicLog
 			if errors.Is(err, ErrJobNotFound) {
 				return false, err
 			}
-			ll.Errorf("failed to get job result for id %d: %v (%T)", id, err, err)
+			ll.Errorf("failed to get job result", "error", err, "job_id", id)
 			return false, nil
 		}
 
@@ -515,7 +516,8 @@ func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID, ll basicLog
 	}
 }
 
-func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkConfig, jobRes *schedule.JobSubmitResult, ll basicLogger) func(context.Context) (bool, error) {
+// note: jobID is an out parameter and the name in walkCfg may be updated with an existing name
+func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkConfig, jobID *schedule.JobID, ll basicLogger) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
 		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
 		if err != nil {
@@ -524,13 +526,30 @@ func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkCo
 		}
 		defer closer()
 
-		res, err := api.LilyWalk(ctx, walkCfg)
+		// Check if walk is already running
+		jr, err := findExistingJob(ctx, api, walkCfg)
 		if err != nil {
-			ll.Errorf("failed to create walk %s: %v", walkCfg.Name, err)
-			return false, nil
+			if !errors.Is(err, ErrJobNotFound) {
+				ll.Errorw("failed to read jobs", "error", err)
+				return false, nil
+			}
+
+			// No existing job, start a new walk
+			res, err := api.LilyWalk(ctx, walkCfg)
+			if err != nil {
+				ll.Errorw("failed to create walk", "error", err, "walk", walkCfg.Name)
+				return false, nil
+			}
+
+			// we're done
+			*jobID = res.ID
+			return true, err
+
 		}
 
-		*jobRes = *res
+		ll.Infow("adopting running walk that matched required job", "job_id", jr.ID, "walk", jr.Name)
+		*jobID = jr.ID
+		walkCfg.Name = jr.Name
 		return true, nil
 	}
 }
@@ -571,6 +590,45 @@ func getJobResult(ctx context.Context, api lily.LilyAPI, id schedule.JobID) (*sc
 		if jr.ID == id {
 			return &jr, nil
 		}
+	}
+
+	return nil, ErrJobNotFound
+}
+
+func findExistingJob(ctx context.Context, api lily.LilyAPI, walkCfg *lily.LilyWalkConfig) (*schedule.JobListResult, error) {
+	jobs, err := api.LilyJobList(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list jobs: %w", err)
+	}
+
+	for _, jr := range jobs {
+		if jr.Type != "walk" {
+			continue
+		}
+
+		if !jr.Running {
+			continue
+		}
+
+		if jr.Params["storage"] != walkCfg.Storage {
+			continue
+		}
+
+		from, err := strconv.ParseInt(jr.Params["minHeight"], 10, 64)
+		if err != nil || from != walkCfg.From {
+			continue
+		}
+
+		to, err := strconv.ParseInt(jr.Params["maxHeight"], 10, 64)
+		if err != nil || to != walkCfg.To {
+			continue
+		}
+
+		if !equalStringSlices(jr.Tasks, walkCfg.Tasks) {
+			continue
+		}
+
+		return &jr, nil
 	}
 
 	return nil, ErrJobNotFound
@@ -621,30 +679,24 @@ func removeExportFile(ctx context.Context, ef *ExportFile, wi WalkInfo) error {
 	return nil
 }
 
-func walksInProgress(ctx context.Context, apiAddr string, apiToken string) {
-	api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
-	if err != nil {
-		logger.Errorw("failed to connect to lily api", "error", err, "api_addr", apiAddr)
-		return
-	}
-	defer closer()
-
-	jobs, err := api.LilyJobList(ctx)
-	if err != nil {
-		logger.Errorw("failed to list jobs", "error", err)
-		return
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
 	}
 
-	for _, jr := range jobs {
-		if jr.Type != "walk" {
-			continue
+	acopy := make([]string, len(a))
+	copy(acopy, a)
+	sort.Strings(acopy)
+
+	bcopy := make([]string, len(b))
+	copy(bcopy, b)
+	sort.Strings(bcopy)
+
+	for i := range acopy {
+		if acopy[i] != bcopy[i] {
+			return false
 		}
-
-		if !jr.Running {
-			continue
-		}
-
-		logger.Infow("walk in progress", "id", jr.ID, "name", jr.Name, "minHeight", jr.Params["minHeight"], "maxHeight", jr.Params["maxHeight"], "storage", jr.Params["storage"])
-
 	}
+
+	return true
 }

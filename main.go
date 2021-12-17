@@ -401,21 +401,6 @@ var app = &cli.App{
 				return nil
 			},
 		},
-
-		{
-			Name:   "walks",
-			Usage:  "List walks in progress on lily.",
-			Before: configure,
-			Flags: flagSet(
-				loggingFlags,
-				lilyFlags,
-				[]cli.Flag{},
-			),
-			Action: func(cc *cli.Context) error {
-				walksInProgress(cc.Context, lilyConfig.apiAddr, lilyConfig.apiToken)
-				return nil
-			},
-		},
 	},
 }
 
