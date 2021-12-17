@@ -34,6 +34,7 @@ var (
 	networkFlags = []cli.Flag{
 		&cli.StringFlag{
 			Name:        "network",
+			EnvVars:     []string{"ARCHIVER_NETWORK"},
 			Usage:       "Name of the filecoin network.",
 			Value:       "mainnet",
 			Hidden:      true,
@@ -41,6 +42,7 @@ var (
 		},
 		&cli.Int64Flag{
 			Name:        "genesis-ts",
+			EnvVars:     []string{"ARCHIVER_GENESIS_TS"},
 			Usage:       "Unix timestamp of the genesis epoch. Defaults to mainnet genesis.",
 			Value:       MainnetGenesisTs, // could be overridden for test nets
 			Hidden:      true,
@@ -58,12 +60,14 @@ var (
 	lilyFlags = []cli.Flag{
 		&cli.StringFlag{
 			Name:        "lily-addr",
+			EnvVars:     []string{"ARCHIVER_LILY_ADDR"},
 			Usage:       "Multiaddress of the lily API.",
 			Value:       "/ip4/127.0.0.1/tcp/1234",
 			Destination: &lilyConfig.apiAddr,
 		},
 		&cli.StringFlag{
 			Name:        "lily-token",
+			EnvVars:     []string{"ARCHIVER_LILY_TOKEN"},
 			Usage:       "Authentication token for lily API.",
 			Destination: &lilyConfig.apiToken,
 		},
@@ -80,18 +84,21 @@ var (
 	storageFlags = []cli.Flag{
 		&cli.StringFlag{
 			Name:        "storage-path",
+			EnvVars:     []string{"ARCHIVER_STORAGE_PATH"},
 			Usage:       "Path in which files written by lily will be found. This should be same as the path for the configured storage in visor config.",
 			Value:       "/data/filecoin/archiver/rawcsv/calibnet", // TODO: remove default
 			Destination: &storageConfig.path,
 		},
 		&cli.StringFlag{
 			Name:        "storage-name",
+			EnvVars:     []string{"ARCHIVER_STORAGE_NAME"},
 			Usage:       "Name of the lily storage profile to use when executing a walk.",
 			Value:       "CSV", // TODO: remove default
 			Destination: &storageConfig.name,
 		},
 		&cli.IntFlag{
 			Name:        "storage-schema",
+			EnvVars:     []string{"ARCHIVER_STORAGE_SCHEMA"},
 			Usage:       "Version of schema to used by storage.",
 			Value:       1,
 			Hidden:      true,

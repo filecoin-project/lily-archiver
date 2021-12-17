@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/urfave/cli/v2"
 )
@@ -46,25 +47,37 @@ var app = &cli.App{
 				storageFlags,
 				[]cli.Flag{
 					&cli.StringFlag{
-						Name:  "output",
-						Usage: "Path to write output files.",
-						Value: "/data/filecoin/archiver/shipped", // TODO: remove default
+						Name:     "ship-path",
+						EnvVars:  []string{"ARCHIVER_SHIP_PATH"},
+						Usage:    "Path used to write verified exports from lily.",
+						Required: true,
 					},
 					&cli.Int64Flag{
-						Name:  "min-height",
-						Usage: "Minimum height that should be exported. This may be used for nodes that do not have full state history.",
-						Value: 1005360, // TODO: remove default
+						Name:    "min-height",
+						EnvVars: []string{"ARCHIVER_MIN_HEIGHT"},
+						Usage:   "Minimum height that should be exported. This may be used for nodes that do not have full state history.",
+						Value:   1005360, // TODO: remove default
 					},
 					&cli.StringFlag{
-						Name:  "tasks",
-						Usage: "Comma separated list of tasks that are allowed to be processed. Default is all tasks.",
-						Value: "",
+						Name:    "tasks",
+						EnvVars: []string{"ARCHIVER_TASKS"},
+						Usage:   "Comma separated list of tasks that are allowed to be processed. Default is all tasks.",
+						Value:   "",
+					},
+					&cli.StringFlag{
+						Name:    "compression",
+						EnvVars: []string{"ARCHIVER_COMPRESSION"},
+						Usage:   "Type of compression to use.",
+						Value:   "gz",
+						Hidden:  true,
 					},
 				},
 			),
 			Action: func(cc *cli.Context) error {
 				ctx := cc.Context
 				tasks := cc.String("tasks")
+				shipPath := cc.String("ship-path")
+				minHeight := cc.Int64("min-height")
 
 				// Build list of allowed tables. Could be all tables.
 				var allowedTables []Table
@@ -84,21 +97,21 @@ var app = &cli.App{
 					}
 				}
 
-				if err := verifyShipDependencies(); err != nil {
+				c, ok := CompressionByName[cc.String("compression")]
+				if !ok {
+					return fmt.Errorf("unknown compression %q", cc.String("compression"))
+				}
+
+				if err := verifyShipDependencies(shipPath, c); err != nil {
 					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
-				p := firstExportPeriodAfter(cc.Int64("min-height"), networkConfig.genesisTs)
+				p := firstExportPeriodAfter(minHeight, networkConfig.genesisTs)
 				for {
-					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, allowedTables)
-					if err != nil {
-						return fmt.Errorf("failed to create manifest for %s: %w", p.Date.String(), err)
+					// Retry this export until it works
+					if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Minute*15); err != nil {
+						return fmt.Errorf("fatal error processing export: %w", err)
 					}
-
-					if err := processExport(ctx, em, cc.String("output")); err != nil {
-						return fmt.Errorf("failed to process export for %s: %w", p.Date.String(), err)
-					}
-
 					p = p.Next()
 				}
 			},
@@ -106,7 +119,7 @@ var app = &cli.App{
 
 		{
 			Name:   "stat",
-			Usage:  "Report the status of export files.",
+			Usage:  "Report the status of exports.",
 			Before: configure,
 			Flags: flagSet(
 				loggingFlags,
@@ -114,22 +127,33 @@ var app = &cli.App{
 				storageFlags,
 				[]cli.Flag{
 					&cli.StringFlag{
-						Name:  "output",
-						Usage: "Path to write output files.",
-						Value: "/data/filecoin/archiver/shipped", // TODO: remove default
+						Name:     "ship-path",
+						EnvVars:  []string{"ARCHIVER_SHIP_PATH"},
+						Usage:    "Path used to write verified exports from lily.",
+						Required: true,
 					},
 					&cli.BoolFlag{
-						Name:  "shipped",
-						Usage: "Include files that have been shipped.",
-						Value: false,
+						Name:    "shipped",
+						EnvVars: []string{"ARCHIVER_SHIPPED"},
+						Usage:   "Include files that have been shipped.",
+						Value:   false,
 					},
 					&cli.StringFlag{
-						Name:  "from-date",
-						Usage: "Include only files that are exported on or after this date.",
+						Name:    "from-date",
+						EnvVars: []string{"ARCHIVER_FROM_DATE"},
+						Usage:   "Include only files that are exported on or after this date.",
 					},
 					&cli.StringFlag{
-						Name:  "to-date",
-						Usage: "Include only files that are exported on or before this date.",
+						Name:    "to-date",
+						EnvVars: []string{"ARCHIVER_TO_DATE"},
+						Usage:   "Include only files that are exported on or before this date.",
+					},
+					&cli.StringFlag{
+						Name:    "compression",
+						EnvVars: []string{"ARCHIVER_COMPRESSION"},
+						Usage:   "Type of compression to use.",
+						Value:   "gz",
+						Hidden:  true,
 					},
 				},
 			),
@@ -153,6 +177,12 @@ var app = &cli.App{
 					}
 				}
 
+				c, ok := CompressionByName[cc.String("compression")]
+				if !ok {
+					return fmt.Errorf("unknown compression %q", cc.String("compression"))
+				}
+
+				shipPath := cc.String("ship-path")
 				includeShipped := cc.Bool("shipped")
 
 				current := CurrentHeight(networkConfig.genesisTs)
@@ -166,7 +196,7 @@ var app = &cli.App{
 						continue
 					}
 
-					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, cc.String("output"), storageConfig.schemaVersion, TableList)
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, shipPath, storageConfig.schemaVersion, TableList, c)
 					if err != nil {
 						return fmt.Errorf("build manifest for period: %w", err)
 					}
@@ -203,18 +233,23 @@ var app = &cli.App{
 				[]cli.Flag{
 					&cli.StringFlag{
 						Name:     "tables",
+						EnvVars:  []string{"ARCHIVER_TABLES"},
 						Usage:    "Tables to verify, comma separated.",
 						Required: true,
 					},
 					&cli.StringFlag{
-						Name:  "name",
-						Usage: "Name of the export.",
-						Value: "export-1005360-1008239",
+						Name:     "name",
+						EnvVars:  []string{"ARCHIVER_EXPORT_NAME"},
+						Usage:    "Name of the export to be verified.",
+						Required: true,
 					},
 				},
 			),
 			Action: func(cc *cli.Context) error {
-				tables := strings.Split(cc.String("tables"), ",")
+				tables, err := parseTableList(cc.String("tables"))
+				if err != nil {
+					return fmt.Errorf("invalid tables: %w", err)
+				}
 
 				tasks := make(map[string]struct{}, 0)
 				for _, table := range tables {
@@ -290,29 +325,33 @@ var app = &cli.App{
 				[]cli.Flag{
 					&cli.StringFlag{
 						Name:     "tables",
-						Usage:    "Tables to ship, comma separated.",
+						EnvVars:  []string{"ARCHIVER_TABLES"},
 						Required: true,
 					},
 					&cli.StringFlag{
-						Name:  "name",
-						Usage: "Name of the export.",
-						Value: "export-1005360-1008239",
+						Name:     "name",
+						EnvVars:  []string{"ARCHIVER_EXPORT_NAME"},
+						Usage:    "Name of the export.",
+						Required: true,
 					},
 					&cli.StringFlag{
 						Name:     "date",
+						EnvVars:  []string{"ARCHIVER_EXPORT_DATE"},
 						Usage:    "Date covered by the export.",
 						Required: true,
 					},
 					&cli.StringFlag{
-						Name:  "output",
-						Usage: "Path to write output files.",
-						Value: "/data/filecoin/archiver/shipped", // TODO: remove default
+						Name:     "ship-path",
+						EnvVars:  []string{"ARCHIVER_SHIP_PATH"},
+						Usage:    "Path used to write verified exports from lily.",
+						Required: true,
 					},
 					&cli.StringFlag{
-						Name:   "compression",
-						Usage:  "Type of compression to use.",
-						Value:  "gz",
-						Hidden: true,
+						Name:    "compression",
+						EnvVars: []string{"ARCHIVER_COMPRESSION"},
+						Usage:   "Type of compression to use.",
+						Value:   "gz",
+						Hidden:  true,
 					},
 				},
 			),
@@ -327,8 +366,15 @@ var app = &cli.App{
 					return fmt.Errorf("invalid date: %w", err)
 				}
 
-				if err := verifyShipDependencies(); err != nil {
+				shipPath := cc.String("ship-path")
+
+				if err := verifyShipDependencies(shipPath, c); err != nil {
 					return fmt.Errorf("unable to ship files: %w", err)
+				}
+
+				tables, err := parseTableList(cc.String("tables"))
+				if err != nil {
+					return fmt.Errorf("invalid tables: %w", err)
 				}
 
 				wi := WalkInfo{
@@ -337,22 +383,17 @@ var app = &cli.App{
 					Format: "csv",
 				}
 
-				tables := strings.Split(cc.String("tables"), ",")
 				for _, table := range tables {
-					if _, ok := TablesByName[table]; !ok {
-						return fmt.Errorf("unknown table %q", table)
-					}
-
 					ef := ExportFile{
 						Date:        dt,
 						Schema:      storageConfig.schemaVersion,
 						Network:     networkConfig.name,
 						TableName:   table,
 						Format:      "csv",
-						Compression: c.Extension,
+						Compression: c,
 					}
 
-					err := shipFile(cc.Context, &ef, wi, cc.String("output"))
+					err := shipFile(cc.Context, &ef, wi, shipPath)
 					if err != nil {
 						return fmt.Errorf("ship file: %w", err)
 					}
@@ -371,4 +412,14 @@ func flagSet(fs ...[]cli.Flag) []cli.Flag {
 	}
 
 	return flags
+}
+
+func parseTableList(str string) ([]string, error) {
+	tables := strings.Split(str, ",")
+	for _, table := range tables {
+		if _, ok := TablesByName[table]; !ok {
+			return nil, fmt.Errorf("unknown table %q", table)
+		}
+	}
+	return tables, nil
 }

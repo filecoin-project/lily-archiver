@@ -94,7 +94,7 @@ type ExportManifest struct {
 	Files   []*ExportFile
 }
 
-func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table) (*ExportManifest, error) {
+func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, shipPath string, schemaVersion int, allowedTables []Table, compression Compression) (*ExportManifest, error) {
 	p := firstExportPeriod(genesisTs)
 
 	if p.Date.After(d) {
@@ -106,10 +106,10 @@ func manifestForDate(ctx context.Context, d Date, network string, genesisTs int6
 		p = p.Next()
 	}
 
-	return manifestForPeriod(ctx, p, network, genesisTs, outputPath, schemaVersion, allowedTables)
+	return manifestForPeriod(ctx, p, network, genesisTs, shipPath, schemaVersion, allowedTables, compression)
 }
 
-func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, outputPath string, schemaVersion int, allowedTables []Table) (*ExportManifest, error) {
+func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, shipPath string, schemaVersion int, allowedTables []Table, compression Compression) (*ExportManifest, error) {
 	em := &ExportManifest{
 		Period:  p,
 		Network: network,
@@ -133,12 +133,12 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 			Network:     network,
 			TableName:   t.Name,
 			Format:      "csv", // hardcoded for now
-			Compression: "gz",  // hardcoded for now
+			Compression: compression,
 			Shipped:     true,
 			Cid:         cid.Undef,
 		}
 
-		_, err := os.Stat(filepath.Join(outputPath, f.Path()))
+		_, err := os.Stat(filepath.Join(shipPath, f.Path()))
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				f.Shipped = false
@@ -240,7 +240,7 @@ type ExportFile struct {
 	Network     string
 	TableName   string
 	Format      string
-	Compression string
+	Compression Compression
 	Shipped     bool // Shipped indicates that the file has been compressed and placed in the shared filesystem
 	Cid         cid.Cid
 }
@@ -253,7 +253,7 @@ func (e *ExportFile) Path() string {
 
 // Filename returns file name that the export file should be written to.
 func (e *ExportFile) Filename() string {
-	return fmt.Sprintf("%s-%s.%s.%s", e.TableName, e.Date.String(), e.Format, e.Compression)
+	return fmt.Sprintf("%s-%s.%s.%s", e.TableName, e.Date.String(), e.Format, e.Compression.Extension)
 }
 
 func (e *ExportFile) String() string {
@@ -333,7 +333,7 @@ func exportFilePath(exportPath, prefix, name string) string {
 	return filepath.Join(exportPath, fmt.Sprintf("%s-%s.csv", prefix, name))
 }
 
-func processExport(ctx context.Context, em *ExportManifest, outputPath string) error {
+func processExport(ctx context.Context, em *ExportManifest, shipPath string) error {
 	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 
 	if !em.HasUnshippedFiles() {
@@ -364,7 +364,7 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string) e
 		return fmt.Errorf("failed to verify export files: %w", err)
 	}
 
-	err = shipExport(ctx, em, wi, outputPath)
+	err = shipExport(ctx, em, wi, shipPath)
 	if err != nil {
 		return fmt.Errorf("failed to ship export files: %w", err)
 	}
@@ -375,6 +375,24 @@ func processExport(ctx context.Context, em *ExportManifest, outputPath string) e
 	}
 
 	return nil
+}
+
+func exportIsProcessed(p ExportPeriod, allowedTables []Table, compression Compression, shipPath string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, shipPath, storageConfig.schemaVersion, allowedTables, compression)
+		if err != nil {
+			logger.Errorw("failed to create manifest", "error", err, "date", p.Date.String())
+			return false, nil // force a retry
+		}
+
+		if err := processExport(ctx, em, shipPath); err != nil {
+			ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
+			ll.Errorw("failed to process export", "error", err)
+			return false, nil // force a retry
+		}
+
+		return true, nil
+	}
 }
 
 type basicLogger interface {

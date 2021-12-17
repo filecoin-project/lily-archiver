@@ -14,7 +14,7 @@ import (
 	"github.com/filecoin-project/lily/model/visor"
 )
 
-func verifyExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string) (*VerificationReport, error) {
+func verifyExport(ctx context.Context, em *ExportManifest, wi WalkInfo, shipPath string) (*VerificationReport, error) {
 	tasks := make(map[string]struct{}, 0)
 	for _, ef := range em.Files {
 		t, ok := TablesByName[ef.TableName]

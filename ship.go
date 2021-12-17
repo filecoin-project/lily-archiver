@@ -10,14 +10,20 @@ import (
 )
 
 type Compression struct {
-	Names     []string
-	Extension string
+	Names      []string
+	Extension  string
+	Executable string
+	CommandFn  func(source string, destination string) string
 }
 
 var CompressionList = []Compression{
 	{
-		Names:     []string{"gzip", "gz"},
-		Extension: "gz",
+		Names:      []string{"gzip", "gz"},
+		Extension:  "gz",
+		Executable: "gzip",
+		CommandFn: func(source string, destination string) string {
+			return fmt.Sprintf("gzip --no-name --rsyncable --stdout %s > %s", source, destination)
+		},
 	},
 }
 
@@ -32,21 +38,32 @@ func init() {
 	}
 }
 
-func verifyShipDependencies() error {
-	// Check gzip is available
-	_, err := exec.LookPath("gzip")
+func verifyShipDependencies(shipPath string, c Compression) error {
+	// Check compression executable is available
+	_, err := exec.LookPath(c.Executable)
 	if err != nil {
-		return fmt.Errorf("missing gzip executable: %w", err)
+		return fmt.Errorf("missing %s executable: %w", c.Executable, err)
 	}
+
+	// Check ship path exists and is a directory
+	info, err := os.Stat(shipPath)
+	if err != nil {
+		return fmt.Errorf("stat ship path: %w", err)
+	}
+
+	if !info.Mode().IsDir() {
+		return fmt.Errorf("ship path is not a directory")
+	}
+
 	return nil
 }
 
-func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath string) error {
+func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, shipPath string) error {
 	for _, ef := range em.Files {
 		if ef.Shipped {
 			continue
 		}
-		if err := shipFile(ctx, ef, wi, outputPath); err != nil {
+		if err := shipFile(ctx, ef, wi, shipPath); err != nil {
 			return err
 		}
 	}
@@ -54,7 +71,7 @@ func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, outputPath
 	return nil
 }
 
-func shipFile(ctx context.Context, ef *ExportFile, wi WalkInfo, outputPath string) error {
+func shipFile(ctx context.Context, ef *ExportFile, wi WalkInfo, shipPath string) error {
 	ll := logger.With("table", ef.TableName, "date", ef.Date.String())
 	ll.Info("shipping export file")
 
@@ -70,24 +87,25 @@ func shipFile(ctx context.Context, ef *ExportFile, wi WalkInfo, outputPath strin
 	}
 	ll.Debugf("found export file %s", walkFile)
 
-	shipFile := filepath.Join(outputPath, ef.Path())
+	shipFile := filepath.Join(shipPath, ef.Path())
 
-	shipPath := filepath.Dir(shipFile)
-	if err := os.MkdirAll(shipPath, os.ModePerm); err != nil {
-		return fmt.Errorf("mkdir %q: %w", shipPath, err)
+	filePath := filepath.Dir(shipFile)
+	if err := os.MkdirAll(filePath, os.ModePerm); err != nil {
+		return fmt.Errorf("mkdir %q: %w", filePath, err)
 	}
 
 	ll.Debugf("compressing to %s", shipFile)
-	bashcmd := fmt.Sprintf("gzip --no-name --rsyncable --stdout %s > %s", walkFile, shipFile)
+	bashcmd := ef.Compression.CommandFn(walkFile, shipFile)
 
 	cmd := exec.Command("bash", "-c", bashcmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		ll.Errorf("gzip failed: %v", err)
+		ll.Errorf("compression failed: %v", err)
+		ll.Errorf("command used: %s", bashcmd)
 		ll.Errorf("stderr: %s", stderr.String())
-		return fmt.Errorf("gzip: %w", err)
+		return fmt.Errorf("compression: %w", err)
 	}
 
 	if _, err := os.Stat(shipFile); err != nil {
