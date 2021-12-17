@@ -620,3 +620,27 @@ func removeExportFile(ctx context.Context, ef *ExportFile, wi WalkInfo) error {
 
 	return nil
 }
+
+func walksInProgress(ctx context.Context, apiAddr string, apiToken string) {
+	api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+	if err != nil {
+		logger.Errorw("failed to connect to lily api", "error", err, "api_addr", apiAddr)
+		return
+	}
+	defer closer()
+
+	jobs, err := api.LilyJobList(ctx)
+	if err != nil {
+		logger.Errorw("failed to list jobs", "error", err)
+		return
+	}
+
+	for _, jr := range jobs {
+		if jr.Type != "walk" {
+			continue
+		}
+
+		logger.Infow("walk in progress", "id", jr.ID, "name", jr.Name, "minHeight", jr.Params["minHeight"], "maxHeight", jr.Params["maxHeight"], "storage", jr.Params["storage"])
+
+	}
+}
