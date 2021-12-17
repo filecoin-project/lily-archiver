@@ -182,6 +182,11 @@ type TaskStatus struct {
 	Unexpected []int64 // heights that should not have been present
 }
 
+// IsOK reports true if no errors, skips or additional data was present
+func (ts *TaskStatus) IsOK() bool {
+	return len(ts.Missing) == 0 && len(ts.Error) == 0 && len(ts.Unexpected) == 0
+}
+
 type Range struct {
 	Lower int64
 	Upper int64

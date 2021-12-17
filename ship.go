@@ -58,20 +58,7 @@ func verifyShipDependencies(shipPath string, c Compression) error {
 	return nil
 }
 
-func shipExport(ctx context.Context, em *ExportManifest, wi WalkInfo, shipPath string) error {
-	for _, ef := range em.Files {
-		if ef.Shipped {
-			continue
-		}
-		if err := shipFile(ctx, ef, wi, shipPath); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func shipFile(ctx context.Context, ef *ExportFile, wi WalkInfo, shipPath string) error {
+func shipExportFile(ctx context.Context, ef *ExportFile, wi WalkInfo, shipPath string) error {
 	ll := logger.With("table", ef.TableName, "date", ef.Date.String())
 	ll.Info("shipping export file")
 

@@ -183,6 +183,22 @@ func (em *ExportManifest) HasUnshippedFiles() bool {
 	return false
 }
 
+func (em *ExportManifest) FilesForTask(task string) []*ExportFile {
+	var files []*ExportFile
+	for _, ef := range em.Files {
+		table, ok := TablesByName[ef.TableName]
+		if !ok {
+			// weird if we have an unknown table, but doesn't warrant exiting here
+			continue
+		}
+		if table.Task == task {
+			files = append(files, ef)
+		}
+	}
+
+	return files
+}
+
 // ExportPeriod holds the parameters for an export covering a date.
 type ExportPeriod struct {
 	Date        Date
@@ -357,21 +373,36 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 		return fmt.Errorf("failed performing walk: %w", err)
 	}
 
-	// TODO: retry
 	ll.Info("export complete")
-	_, err := verifyTasks(ctx, wi, tasksForManifest(em))
+	report, err := verifyTasks(ctx, wi, tasksForManifest(em))
 	if err != nil {
 		return fmt.Errorf("failed to verify export files: %w", err)
 	}
 
-	err = shipExport(ctx, em, wi, shipPath)
-	if err != nil {
-		return fmt.Errorf("failed to ship export files: %w", err)
+	shipFailure := false
+	for task, ts := range report.TaskStatus {
+		if !ts.IsOK() {
+			continue
+		}
+
+		files := em.FilesForTask(task)
+		for _, ef := range files {
+			if !ef.Shipped {
+				if err := shipExportFile(ctx, ef, wi, shipPath); err != nil {
+					shipFailure = true
+					ll.Errorw("failed to ship export file", "error", err)
+					continue
+				}
+
+				if err := removeExportFile(ctx, ef, wi); err != nil {
+					ll.Errorw("failed to remove export file", "error", err, "file", wi.WalkFile(ef.TableName))
+				}
+			}
+		}
 	}
 
-	err = removeExportFiles(ctx, em, wi)
-	if err != nil {
-		return fmt.Errorf("failed to remove export files: %w", err)
+	if shipFailure {
+		return fmt.Errorf("failed to ship one or more export files")
 	}
 
 	return nil
@@ -570,12 +601,21 @@ func touchExportFiles(ctx context.Context, em *ExportManifest, wi WalkInfo) erro
 	return nil
 }
 
-func removeExportFiles(ctx context.Context, em *ExportManifest, wi WalkInfo) error {
-	for _, ef := range em.Files {
+func removeExportFiles(ctx context.Context, files []*ExportFile, wi WalkInfo) error {
+	for _, ef := range files {
 		walkFile := wi.WalkFile(ef.TableName)
 		if err := os.Remove(walkFile); err != nil {
 			logger.Errorf("failed to remove file %s: %w", walkFile, err)
 		}
+	}
+
+	return nil
+}
+
+func removeExportFile(ctx context.Context, ef *ExportFile, wi WalkInfo) error {
+	walkFile := wi.WalkFile(ef.TableName)
+	if err := os.Remove(walkFile); err != nil {
+		return fmt.Errorf("remove: %w", err)
 	}
 
 	return nil

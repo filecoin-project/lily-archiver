@@ -393,7 +393,7 @@ var app = &cli.App{
 						Compression: c,
 					}
 
-					err := shipFile(cc.Context, &ef, wi, shipPath)
+					err := shipExportFile(cc.Context, &ef, wi, shipPath)
 					if err != nil {
 						return fmt.Errorf("ship file: %w", err)
 					}
