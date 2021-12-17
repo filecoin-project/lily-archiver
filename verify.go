@@ -34,6 +34,8 @@ func verifyExport(ctx context.Context, em *ExportManifest, wi WalkInfo, shipPath
 
 func verifyTasks(ctx context.Context, wi WalkInfo, tasks []string) (*VerificationReport, error) {
 	consensusPath := wi.WalkFile("chain_consensus")
+	logger.Debugw("reading chain_consensus export", "export_file", consensusPath)
+
 	consensusFile, err := os.Open(consensusPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open consensus export: %w", err)
@@ -66,7 +68,7 @@ func verifyTasks(ctx context.Context, wi WalkInfo, tasks []string) (*Verificatio
 		}
 		heights[height] = blocks
 	}
-	logger.Infof("expecting %d heights", len(heights))
+	logger.Debugf("found %d heights in chain consensus export", len(heights))
 
 	type taskInfo struct {
 		status TaskStatus
@@ -87,6 +89,7 @@ func verifyTasks(ctx context.Context, wi WalkInfo, tasks []string) (*Verificatio
 	}
 
 	reportsPath := wi.WalkFile("visor_processing_reports")
+	logger.Debugw("reading visor_processing_reports export", "export_file", reportsPath)
 	reportsFile, err := os.Open(reportsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open processing reports: %w", err)
@@ -112,7 +115,7 @@ func verifyTasks(ctx context.Context, wi WalkInfo, tasks []string) (*Verificatio
 		if !wanted {
 			continue
 		}
-		ll := logger.With("task", task)
+		ll := logger.With("task", task, "export_file", reportsPath)
 
 		height, err := strconv.ParseInt(row[0], 10, 64)
 		if err != nil {
@@ -144,7 +147,7 @@ func verifyTasks(ctx context.Context, wi WalkInfo, tasks []string) (*Verificatio
 
 			default:
 				ll.Infof("unknown status %s for height", row[6], height)
-				// TODO: abort
+				info.status.Error = append(info.status.Error, height)
 			}
 		}
 

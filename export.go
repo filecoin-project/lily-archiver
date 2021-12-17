@@ -383,6 +383,7 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 	shipFailure := false
 	for task, ts := range report.TaskStatus {
 		if !ts.IsOK() {
+			shipFailure = true
 			continue
 		}
 
