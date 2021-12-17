@@ -640,6 +640,10 @@ func walksInProgress(ctx context.Context, apiAddr string, apiToken string) {
 			continue
 		}
 
+		if !jr.Running {
+			continue
+		}
+
 		logger.Infow("walk in progress", "id", jr.ID, "name", jr.Name, "minHeight", jr.Params["minHeight"], "maxHeight", jr.Params["maxHeight"], "storage", jr.Params["storage"])
 
 	}
