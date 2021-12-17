@@ -448,17 +448,6 @@ func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkIn
 		}
 		ll.Debugw(fmt.Sprintf("using tasks %s", strings.Join(walkCfg.Tasks, ",")), "walk", walkCfg.Name)
 
-		wi := WalkInfo{
-			Name:   walkCfg.Name,
-			Path:   storageConfig.path,
-			Format: "csv",
-		}
-		err = touchExportFiles(ctx, em, wi)
-		if err != nil {
-			ll.Errorw(fmt.Sprintf("failed to touch export files: %v", err), "walk", walkCfg.Name)
-			return false, nil
-		}
-
 		var jobID schedule.JobID
 		ll.Infow("starting walk", "walk", walkCfg.Name)
 		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobID, ll), 0, time.Second*30); err != nil {
@@ -481,6 +470,17 @@ func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkIn
 
 		if jobListRes.Error != "" {
 			ll.Errorw(fmt.Sprintf("walk failed: %s", jobListRes.Error), "walk", walkCfg.Name, "job_id", jobID)
+			return false, nil
+		}
+
+		wi := WalkInfo{
+			Name:   walkCfg.Name,
+			Path:   storageConfig.path,
+			Format: "csv",
+		}
+		err = touchExportFiles(ctx, em, wi)
+		if err != nil {
+			ll.Errorw(fmt.Sprintf("failed to touch export files: %v", err), "walk", walkCfg.Name)
 			return false, nil
 		}
 
