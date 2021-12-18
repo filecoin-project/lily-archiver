@@ -124,6 +124,10 @@ func verifyTasks(ctx context.Context, wi WalkInfo, tasks []string) (*Verificatio
 
 		alreadySeen, expecting := info.seen[height]
 		if !expecting {
+			// Unlike others, consensus task will have INFO rows for null rounds
+			if task == "consensus" {
+				continue
+			}
 			ll.Infof("unexpected data found for height %d", height)
 			info.status.Unexpected = append(info.status.Unexpected, height)
 		} else {
