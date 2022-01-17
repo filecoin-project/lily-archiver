@@ -1,4 +1,4 @@
-module github.com/iand/sentinel-archiver
+module github.com/filecoin-project/sentinel-archiver
 
 go 1.16
 
