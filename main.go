@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	metrics "github.com/ipfs/go-metrics-interface"
 	"github.com/urfave/cli/v2"
 )
 
@@ -15,6 +16,8 @@ import (
 var rawVersion string
 
 var version string
+
+const appName = "archiver"
 
 func init() {
 	version = rawVersion
@@ -32,7 +35,7 @@ func main() {
 }
 
 var app = &cli.App{
-	Name:    "archiver",
+	Name:    appName,
 	Usage:   "produces regular archives of on-chain state for the Filecoin network.",
 	Version: version,
 	Commands: []*cli.Command{
@@ -45,6 +48,7 @@ var app = &cli.App{
 				networkFlags,
 				lilyFlags,
 				storageFlags,
+				diagnosticsFlags,
 				[]cli.Flag{
 					&cli.StringFlag{
 						Name:     "ship-path",
@@ -74,7 +78,9 @@ var app = &cli.App{
 				},
 			),
 			Action: func(cc *cli.Context) error {
-				ctx := cc.Context
+				ctx := metrics.CtxScope(cc.Context, appName)
+				setupMetrics(ctx)
+
 				tasks := cc.String("tasks")
 				shipPath := cc.String("ship-path")
 				minHeight := cc.Int64("min-height")
@@ -112,6 +118,7 @@ var app = &cli.App{
 					if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Minute*15); err != nil {
 						return fmt.Errorf("fatal error processing export: %w", err)
 					}
+					exportLastCompletedHeightGauge.Set(float64(p.EndHeight))
 					p = p.Next()
 				}
 			},

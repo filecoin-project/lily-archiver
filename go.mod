@@ -3,11 +3,16 @@ module github.com/filecoin-project/sentinel-archiver
 go 1.16
 
 require (
+	contrib.go.opencensus.io/exporter/prometheus v0.4.0
 	github.com/filecoin-project/lily v0.8.2-0.20211022094029-438a4cac37cb
 	github.com/filecoin-project/specs-actors/v5 v5.0.4
 	github.com/ipfs/go-cid v0.1.0
 	github.com/ipfs/go-log/v2 v2.3.0
+	github.com/ipfs/go-metrics-interface v0.0.1
+	github.com/ipfs/go-metrics-prometheus v0.0.2
+	github.com/prometheus/client_golang v1.11.0
 	github.com/urfave/cli/v2 v2.3.0
+	go.opencensus.io v0.23.0
 )
 
 replace github.com/filecoin-project/filecoin-ffi => github.com/filecoin-project/ffi-stub v0.2.0

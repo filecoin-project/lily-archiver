@@ -1,14 +1,23 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/pprof"
+	"time"
 
+	"contrib.go.opencensus.io/exporter/prometheus"
 	logging "github.com/ipfs/go-log/v2"
+	metrics "github.com/ipfs/go-metrics-interface"
+	metricsprom "github.com/ipfs/go-metrics-prometheus"
+	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/urfave/cli/v2"
+	"go.opencensus.io/stats/view"
 )
 
 var (
-	logger = logging.Logger("archiver")
+	logger = logging.Logger(appName)
 
 	loggingConfig struct {
 		level string
@@ -107,9 +116,117 @@ var (
 	}
 )
 
+var (
+	diagnosticsConfig struct {
+		debugAddr      string
+		prometheusAddr string
+	}
+
+	diagnosticsFlags = []cli.Flag{
+		&cli.StringFlag{
+			Name:        "debug-addr",
+			Usage:       "Network address to start a debug http server on (example: 127.0.0.1:8080)",
+			Value:       "",
+			Destination: &diagnosticsConfig.debugAddr,
+		},
+		&cli.StringFlag{
+			Name:        "prometheus-addr",
+			Usage:       "Network address to start a prometheus metric exporter server on (example: :9991)",
+			Value:       "",
+			Destination: &diagnosticsConfig.prometheusAddr,
+		},
+	}
+)
+
 func configure(_ *cli.Context) error {
-	if err := logging.SetLogLevel("archiver", loggingConfig.level); err != nil {
+	if err := logging.SetLogLevel(appName, loggingConfig.level); err != nil {
 		return fmt.Errorf("invalid log level: %w", err)
 	}
+
+	if diagnosticsConfig.debugAddr != "" {
+		if err := startDebugServer(); err != nil {
+			return fmt.Errorf("start debug server: %w", err)
+		}
+	}
+
+	if diagnosticsConfig.prometheusAddr != "" {
+		if err := startPrometheusServer(); err != nil {
+			return fmt.Errorf("start prometheus server: %w", err)
+		}
+	}
+
 	return nil
+}
+
+func startDebugServer() error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.Handle("/debug/pprof/block", pprof.Handler("block"))
+	mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	mux.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
+	mux.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
+
+	go func() {
+		if err := http.ListenAndServe(diagnosticsConfig.debugAddr, mux); err != nil {
+			logger.Errorw("debug server failed", "error", err)
+		}
+	}()
+	return nil
+}
+
+func startPrometheusServer() error {
+	// Bind the ipfs metrics interface to prometheus
+	if err := metricsprom.Inject(); err != nil {
+		logger.Errorw("unable to inject prometheus ipfs/go-metrics exporter; some metrics will be unavailable", "error", err)
+	}
+
+	pe, err := prometheus.NewExporter(prometheus.Options{
+		Namespace:  appName,
+		Registerer: prom.DefaultRegisterer,
+		Gatherer:   prom.DefaultGatherer,
+	})
+	if err != nil {
+		return fmt.Errorf("new prometheus exporter: %w", err)
+	}
+
+	// register prometheus with opencensus
+	view.RegisterExporter(pe)
+	view.SetReportingPeriod(2 * time.Second)
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", pe)
+	go func() {
+		if err := http.ListenAndServe(diagnosticsConfig.prometheusAddr, mux); err != nil {
+			logger.Errorw("prometheus server failed", "error", err)
+		}
+	}()
+	return nil
+}
+
+// metrics
+var (
+	exportLastCompletedHeightGauge metrics.Gauge
+	processExportStartedCounter    metrics.Counter
+	processExportErrorsCounter     metrics.Counter
+	lilyConnectionErrorsCounter    metrics.Counter
+	lilyJobErrorsCounter           metrics.Counter
+	walkErrorsCounter              metrics.Counter
+	verifyTableErrorsCounter       metrics.Counter
+	shipTableErrorsCounter         metrics.Counter
+)
+
+func setupMetrics(ctx context.Context) {
+	exportLastCompletedHeightGauge = metrics.NewCtx(ctx, "export_last_completed_height", "Height of last completed export").Gauge()
+	lilyConnectionErrorsCounter = metrics.NewCtx(ctx, "lily_connection_errors_total", "Total number of errors encountered connecting to lily node").Counter()
+	lilyJobErrorsCounter = metrics.NewCtx(ctx, "lily_job_errors_total", "Total number of errors encountered while managing lily jobs").Counter()
+	processExportStartedCounter = metrics.NewCtx(ctx, "process_export_started_total", "Total number of exports that have started processing").Counter()
+	processExportErrorsCounter = metrics.NewCtx(ctx, "process_export_errors_total", "Total number of errors encountered processing an export").Counter()
+	walkErrorsCounter = metrics.NewCtx(ctx, "walk_errors_total", "Total number of errors encountered creating and waiting for walks to complete").Counter()
+	verifyTableErrorsCounter = metrics.NewCtx(ctx, "verify_table_errors_total", "Total number of errors encountered verifying an exported table").Counter()
+	shipTableErrorsCounter = metrics.NewCtx(ctx, "ship_table_errors_total", "Total number of errors encountered shipping an exported table").Counter()
 }

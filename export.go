@@ -358,6 +358,7 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 		return nil
 	}
 
+	processExportStartedCounter.Inc()
 	ll.Info("preparing to export files for shipping")
 
 	// We must wait for one full finality after the end of the period before running the export
@@ -383,6 +384,7 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 	shipFailure := false
 	for task, ts := range report.TaskStatus {
 		if !ts.IsOK() {
+			verifyTableErrorsCounter.Inc()
 			shipFailure = true
 			continue
 		}
@@ -391,6 +393,7 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 		for _, ef := range files {
 			if !ef.Shipped {
 				if err := shipExportFile(ctx, ef, wi, shipPath); err != nil {
+					shipTableErrorsCounter.Inc()
 					shipFailure = true
 					ll.Errorw("failed to ship export file", "error", err)
 					continue
@@ -414,11 +417,13 @@ func exportIsProcessed(p ExportPeriod, allowedTables []Table, compression Compre
 	return func(ctx context.Context) (bool, error) {
 		em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, shipPath, storageConfig.schemaVersion, allowedTables, compression)
 		if err != nil {
+			processExportErrorsCounter.Inc()
 			logger.Errorw("failed to create manifest", "error", err, "date", p.Date.String())
 			return false, nil // force a retry
 		}
 
 		if err := processExport(ctx, em, shipPath); err != nil {
+			processExportErrorsCounter.Inc()
 			ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 			ll.Errorw("failed to process export", "error", err)
 			return false, nil // force a retry
@@ -444,6 +449,7 @@ func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkIn
 	return func(ctx context.Context) (bool, error) {
 		walkCfg, err := walkForManifest(em)
 		if err != nil {
+			walkErrorsCounter.Inc()
 			ll.Errorf("failed to create walk configuration: %v")
 			return false, nil
 		}
@@ -452,12 +458,14 @@ func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkIn
 		var jobID schedule.JobID
 		ll.Infow("starting walk", "walk", walkCfg.Name)
 		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobID, ll), 0, time.Second*30); err != nil {
+			walkErrorsCounter.Inc()
 			ll.Errorw(fmt.Sprintf("failed starting walk: %v", err), "walk", walkCfg.Name)
 			return false, nil
 		}
 
 		ll.Infow("waiting for walk to complete", "walk", walkCfg.Name, "job_id", jobID)
 		if err := WaitUntil(ctx, jobHasEnded(lilyConfig.apiAddr, lilyConfig.apiToken, jobID, ll), time.Second*30, time.Second*30); err != nil {
+			walkErrorsCounter.Inc()
 			ll.Errorw(fmt.Sprintf("failed waiting for walk to finish: %v", err), "walk", walkCfg.Name, "job_id", jobID)
 			return false, nil
 		}
@@ -465,11 +473,13 @@ func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkIn
 		ll.Infow("walk complete", "walk", walkCfg.Name, "job_id", jobID)
 		var jobListRes schedule.JobListResult
 		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.Name, jobID, &jobListRes, ll), 0, time.Second*30); err != nil {
+			walkErrorsCounter.Inc()
 			ll.Errorw(fmt.Sprintf("failed waiting walk result: %v", err), "walk", walkCfg.Name, "job_id", jobID)
 			return false, nil
 		}
 
 		if jobListRes.Error != "" {
+			walkErrorsCounter.Inc()
 			ll.Errorw(fmt.Sprintf("walk failed: %s", jobListRes.Error), "walk", walkCfg.Name, "job_id", jobID)
 			return false, nil
 		}
@@ -481,6 +491,7 @@ func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkIn
 		}
 		err = touchExportFiles(ctx, em, wi)
 		if err != nil {
+			walkErrorsCounter.Inc()
 			ll.Errorw(fmt.Sprintf("failed to touch export files: %v", err), "walk", walkCfg.Name)
 			return false, nil
 		}
@@ -496,6 +507,7 @@ func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID, ll basicLog
 	return func(ctx context.Context) (bool, error) {
 		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
 		if err != nil {
+			lilyConnectionErrorsCounter.Inc()
 			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
 			return false, nil
 		}
@@ -503,6 +515,7 @@ func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID, ll basicLog
 
 		jr, err := getJobResult(ctx, api, id)
 		if err != nil {
+			lilyJobErrorsCounter.Inc()
 			if errors.Is(err, ErrJobNotFound) {
 				return false, err
 			}
@@ -522,6 +535,7 @@ func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkCo
 	return func(ctx context.Context) (bool, error) {
 		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
 		if err != nil {
+			lilyConnectionErrorsCounter.Inc()
 			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
 			return false, nil
 		}
@@ -531,6 +545,7 @@ func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkCo
 		jr, err := findExistingJob(ctx, api, walkCfg)
 		if err != nil {
 			if !errors.Is(err, ErrJobNotFound) {
+				lilyJobErrorsCounter.Inc()
 				ll.Errorw("failed to read jobs", "error", err)
 				return false, nil
 			}
@@ -559,6 +574,7 @@ func jobGetResult(apiAddr string, apiToken string, walkName string, walkID sched
 	return func(ctx context.Context) (bool, error) {
 		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
 		if err != nil {
+			lilyConnectionErrorsCounter.Inc()
 			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
 			return false, nil
 		}
@@ -566,6 +582,7 @@ func jobGetResult(apiAddr string, apiToken string, walkName string, walkID sched
 
 		res, err := getJobResult(ctx, api, walkID)
 		if err != nil {
+			lilyJobErrorsCounter.Inc()
 			ll.Errorf("failed reading job result for walk %s with id %d: %v", walkName, walkID, err)
 			return false, nil
 		}
