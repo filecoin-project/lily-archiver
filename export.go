@@ -14,6 +14,19 @@ import (
 
 	"github.com/filecoin-project/lily/commands"
 	"github.com/filecoin-project/lily/lens/lily"
+	"github.com/filecoin-project/lily/model/actors/common"
+	init_ "github.com/filecoin-project/lily/model/actors/init"
+	"github.com/filecoin-project/lily/model/actors/market"
+	"github.com/filecoin-project/lily/model/actors/miner"
+	"github.com/filecoin-project/lily/model/actors/multisig"
+	"github.com/filecoin-project/lily/model/actors/power"
+	"github.com/filecoin-project/lily/model/actors/reward"
+	"github.com/filecoin-project/lily/model/actors/verifreg"
+	"github.com/filecoin-project/lily/model/blocks"
+	"github.com/filecoin-project/lily/model/chain"
+	"github.com/filecoin-project/lily/model/derived"
+	"github.com/filecoin-project/lily/model/messages"
+	"github.com/filecoin-project/lily/model/msapprovals"
 	"github.com/filecoin-project/lily/schedule"
 	"github.com/ipfs/go-cid"
 )
@@ -25,66 +38,77 @@ type Table struct {
 	// Task is the name of the task that writes the table
 	Task string
 
-	// Schemas is a list of schemas for which the table is supported.
-	Schemas []int
+	// Schemas is the major schema version for which the table is supported.
+	Schema int
+
+	// An empty instance of the lily model
+	Model interface{}
 }
 
 var TableList = []Table{
-	{Name: "actor_states", Schemas: []int{0, 1}, Task: "actorstatesraw"},
-	{Name: "actors", Schemas: []int{0, 1}, Task: "actorstatesraw"},
-	{Name: "block_headers", Schemas: []int{0, 1}, Task: "blocks"},
-	{Name: "block_messages", Schemas: []int{0, 1}, Task: "messages"},
-	{Name: "block_parents", Schemas: []int{0, 1}, Task: "blocks"},
-	{Name: "chain_consensus", Schemas: []int{1}, Task: "consensus"},
-	{Name: "chain_economics", Schemas: []int{0, 1}, Task: "chaineconomics"},
-	{Name: "chain_powers", Schemas: []int{0, 1}, Task: "actorstatespower"},
-	{Name: "chain_rewards", Schemas: []int{0, 1}, Task: "actorstatesreward"},
-	{Name: "derived_gas_outputs", Schemas: []int{0, 1}, Task: "messages"},
-	{Name: "drand_block_entries", Schemas: []int{0, 1}, Task: "blocks"},
-	{Name: "id_addresses", Schemas: []int{0, 1}, Task: "actorstatesinit"},
-	{Name: "internal_messages", Schemas: []int{1}, Task: "implicitmessage"},
-	{Name: "internal_parsed_messages", Schemas: []int{1}, Task: "implicitmessage"},
-	{Name: "market_deal_proposals", Schemas: []int{0, 1}, Task: "actorstatesmarket"},
-	{Name: "market_deal_states", Schemas: []int{0, 1}, Task: "actorstatesmarket"},
-	{Name: "message_gas_economy", Schemas: []int{0, 1}, Task: "messages"},
-	{Name: "messages", Schemas: []int{0, 1}, Task: "messages"},
-	{Name: "miner_current_deadline_infos", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "miner_fee_debts", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "miner_infos", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "miner_locked_funds", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "miner_pre_commit_infos", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "miner_sector_deals", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "miner_sector_events", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "miner_sector_infos", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "miner_sector_posts", Schemas: []int{0, 1}, Task: "actorstatesminer"},
-	{Name: "multisig_approvals", Schemas: []int{0, 1}, Task: "msapprovals"},
-	{Name: "multisig_transactions", Schemas: []int{0, 1}, Task: "actorstatesmultisig"},
-	{Name: "parsed_messages", Schemas: []int{0, 1}, Task: "messages"},
-	{Name: "power_actor_claims", Schemas: []int{0, 1}, Task: "actorstatespower"},
-	{Name: "receipts", Schemas: []int{0, 1}, Task: "messages"},
-	{Name: "verified_registry_verifiers", Schemas: []int{1}, Task: "actorstatesverifreg"},
-	{Name: "verified_registry_verified_clients", Schemas: []int{1}, Task: "actorstatesverifreg"},
+	{Name: "actor_states", Schema: 1, Task: "actorstatesraw", Model: &common.ActorState{}},
+	{Name: "actors", Schema: 1, Task: "actorstatesraw", Model: &common.Actor{}},
+	{Name: "block_headers", Schema: 1, Task: "blocks", Model: &blocks.BlockHeader{}},
+	{Name: "block_messages", Schema: 1, Task: "messages", Model: &messages.BlockMessage{}},
+	{Name: "block_parents", Schema: 1, Task: "blocks", Model: &blocks.BlockParent{}},
+	{Name: "chain_consensus", Schema: 1, Task: "consensus", Model: &chain.ChainConsensus{}},
+	{Name: "chain_economics", Schema: 1, Task: "chaineconomics", Model: &chain.ChainEconomics{}},
+	{Name: "chain_powers", Schema: 1, Task: "actorstatespower", Model: &power.ChainPower{}},
+	{Name: "chain_rewards", Schema: 1, Task: "actorstatesreward", Model: &reward.ChainReward{}},
+	{Name: "derived_gas_outputs", Schema: 1, Task: "messages", Model: &derived.GasOutputs{}},
+	{Name: "drand_block_entries", Schema: 1, Task: "blocks", Model: &blocks.DrandBlockEntrie{}},
+	{Name: "id_addresses", Schema: 1, Task: "actorstatesinit", Model: &init_.IdAddress{}},
+	{Name: "internal_messages", Schema: 1, Task: "implicitmessage", Model: &messages.InternalMessage{}},
+	{Name: "internal_parsed_messages", Schema: 1, Task: "implicitmessage", Model: &messages.InternalParsedMessage{}},
+	{Name: "market_deal_proposals", Schema: 1, Task: "actorstatesmarket", Model: &market.MarketDealProposal{}},
+	{Name: "market_deal_states", Schema: 1, Task: "actorstatesmarket", Model: &market.MarketDealState{}},
+	{Name: "message_gas_economy", Schema: 1, Task: "messages", Model: &messages.MessageGasEconomy{}},
+	{Name: "messages", Schema: 1, Task: "messages", Model: &messages.Message{}},
+	{Name: "miner_current_deadline_infos", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerCurrentDeadlineInfo{}},
+	{Name: "miner_fee_debts", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerFeeDebt{}},
+	{Name: "miner_infos", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerInfo{}},
+	{Name: "miner_locked_funds", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerLockedFund{}},
+	{Name: "miner_pre_commit_infos", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerPreCommitInfo{}},
+	{Name: "miner_sector_deals", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorDeal{}},
+	{Name: "miner_sector_events", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorEvent{}},
+	{Name: "miner_sector_infos", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorInfo{}},
+	{Name: "miner_sector_posts", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorPost{}},
+	{Name: "multisig_approvals", Schema: 1, Task: "msapprovals", Model: &msapprovals.MultisigApproval{}},
+	{Name: "multisig_transactions", Schema: 1, Task: "actorstatesmultisig", Model: &multisig.MultisigTransaction{}},
+	{Name: "parsed_messages", Schema: 1, Task: "messages", Model: &messages.ParsedMessage{}},
+	{Name: "power_actor_claims", Schema: 1, Task: "actorstatespower", Model: &power.PowerActorClaim{}},
+	{Name: "receipts", Schema: 1, Task: "messages", Model: &messages.Receipt{}},
+	{Name: "verified_registry_verifiers", Schema: 1, Task: "actorstatesverifreg", Model: &verifreg.VerifiedRegistryVerifier{}},
+	{Name: "verified_registry_verified_clients", Schema: 1, Task: "actorstatesverifreg", Model: &verifreg.VerifiedRegistryVerifiedClient{}},
 }
 
 var (
 	// TablesByName maps a table name to the table description.
 	TablesByName = map[string]Table{}
 
+	// KnownTasks is a lookup of known task names
+	KnownTasks = map[string]struct{}{}
+
 	// TablesBySchema maps a schema version to a list of tables present in that schema.
 	TablesBySchema = map[int][]Table{}
-
-	// TablesByTask maps a task name to a list of tables that are produced by that task.
-	TablesByTask = map[string][]Table{}
 )
 
 func init() {
 	for _, table := range TableList {
 		TablesByName[table.Name] = table
-		TablesByTask[table.Task] = append(TablesByTask[table.Task], table)
-		for _, schema := range table.Schemas {
-			TablesBySchema[schema] = append(TablesBySchema[schema], table)
+		KnownTasks[table.Task] = struct{}{}
+		TablesBySchema[table.Schema] = append(TablesBySchema[table.Schema], table)
+	}
+}
+
+func TablesByTask(version int, task string) []Table {
+	tables := []Table{}
+	for _, table := range TableList {
+		if table.Task == task {
+			tables = append(tables, table)
 		}
 	}
+	return tables
 }
 
 var ErrJobNotFound = errors.New("job not found")
@@ -667,7 +691,7 @@ func (w *WalkInfo) WalkFile(table string) string {
 func touchExportFiles(ctx context.Context, em *ExportManifest, wi WalkInfo) error {
 	for _, ef := range em.Files {
 		walkFile := wi.WalkFile(ef.TableName)
-		f, err := os.OpenFile(walkFile, os.O_APPEND|os.O_CREATE, os.ModePerm)
+		f, err := os.OpenFile(walkFile, os.O_APPEND|os.O_CREATE, DefaultFilePerms)
 		if err != nil {
 			return fmt.Errorf("open file: %w", err)
 		}

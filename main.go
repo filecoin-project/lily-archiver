@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/lily/model"
+	"github.com/filecoin-project/lily/schemas/v1"
+	"github.com/filecoin-project/lily/storage"
 	metrics "github.com/ipfs/go-metrics-interface"
 	"github.com/urfave/cli/v2"
 )
@@ -90,15 +93,15 @@ var app = &cli.App{
 				if tasks == "" || tasks == "all" {
 					allowedTables = append(allowedTables, TableList...)
 				} else {
-					taskList := strings.Split(cc.String("tasks"), ",")
+					taskList, err := parseTaskList(cc.String("tasks"))
+					if err != nil {
+						return fmt.Errorf("invalid tasks specified: %v", err)
+					}
 					if len(taskList) == 0 {
 						return fmt.Errorf("invalid tasks specified")
 					}
 					for _, task := range taskList {
-						tables, ok := TablesByTask[task]
-						if !ok {
-							return fmt.Errorf("unknown task: %s", task)
-						}
+						tables := TablesByTask(storageConfig.schemaVersion, task)
 						allowedTables = append(allowedTables, tables...)
 					}
 				}
@@ -110,6 +113,10 @@ var app = &cli.App{
 
 				if err := verifyShipDependencies(shipPath, c); err != nil {
 					return fmt.Errorf("unable to ship files: %w", err)
+				}
+
+				if err := ensureAncillaryFiles(shipPath, allowedTables); err != nil {
+					return fmt.Errorf("unable to ensure ancillary files exist: %w", err)
 				}
 
 				p := firstExportPeriodAfter(minHeight, networkConfig.genesisTs)
@@ -322,29 +329,15 @@ var app = &cli.App{
 		},
 
 		{
-			Name:   "ship",
-			Usage:  "Ship raw export files.",
+			Name:   "headers",
+			Usage:  "Write header files for tables.",
 			Before: configure,
 			Flags: flagSet(
 				loggingFlags,
-				storageFlags,
-				networkFlags,
 				[]cli.Flag{
 					&cli.StringFlag{
 						Name:     "tables",
 						EnvVars:  []string{"ARCHIVER_TABLES"},
-						Required: true,
-					},
-					&cli.StringFlag{
-						Name:     "name",
-						EnvVars:  []string{"ARCHIVER_EXPORT_NAME"},
-						Usage:    "Name of the export.",
-						Required: true,
-					},
-					&cli.StringFlag{
-						Name:     "date",
-						EnvVars:  []string{"ARCHIVER_EXPORT_DATE"},
-						Usage:    "Date covered by the export.",
 						Required: true,
 					},
 					&cli.StringFlag{
@@ -353,57 +346,45 @@ var app = &cli.App{
 						Usage:    "Path used to write verified exports from lily.",
 						Required: true,
 					},
-					&cli.StringFlag{
-						Name:    "compression",
-						EnvVars: []string{"ARCHIVER_COMPRESSION"},
-						Usage:   "Type of compression to use.",
-						Value:   "gz",
-						Hidden:  true,
+					&cli.IntFlag{
+						Name:    "storage-schema",
+						EnvVars: []string{"ARCHIVER_STORAGE_SCHEMA"},
+						Usage:   "Version of schema to used by storage.",
+						Value:   1,
 					},
 				},
 			),
 			Action: func(cc *cli.Context) error {
-				c, ok := CompressionByName[cc.String("compression")]
-				if !ok {
-					return fmt.Errorf("unknown compression %q", cc.String("compression"))
-				}
-
-				dt, err := DateFromString(cc.String("date"))
-				if err != nil {
-					return fmt.Errorf("invalid date: %w", err)
-				}
-
-				shipPath := cc.String("ship-path")
-
-				if err := verifyShipDependencies(shipPath, c); err != nil {
-					return fmt.Errorf("unable to ship files: %w", err)
-				}
+				// shipPath := cc.String("ship-path")
 
 				tables, err := parseTableList(cc.String("tables"))
 				if err != nil {
 					return fmt.Errorf("invalid tables: %w", err)
 				}
 
-				wi := WalkInfo{
-					Name:   cc.String("name"),
-					Path:   storageConfig.path,
-					Format: "csv",
+				var version model.Version
+				switch cc.Int("storage-schema") {
+				case 1:
+					version = v1.Version()
+				default:
+					return fmt.Errorf("unknown schema version")
+				}
+
+				strg, err := storage.NewCSVStorage("", version, storage.CSVStorageOptions{})
+				if err != nil {
+					return fmt.Errorf("new csv storage: %w", err)
 				}
 
 				for _, table := range tables {
-					ef := ExportFile{
-						Date:        dt,
-						Schema:      storageConfig.schemaVersion,
-						Network:     networkConfig.name,
-						TableName:   table,
-						Format:      "csv",
-						Compression: c,
+					t, ok := TablesByName[table]
+					if !ok {
+						return fmt.Errorf("unknown table: %s", table)
 					}
-
-					err := shipExportFile(cc.Context, &ef, wi, shipPath)
+					headers, err := strg.ModelHeaders(t.Model)
 					if err != nil {
-						return fmt.Errorf("ship file: %w", err)
+						return fmt.Errorf("model headers: %w", err)
 					}
+					fmt.Println(strings.Join(headers, ","))
 				}
 				return nil
 			},
@@ -425,8 +406,18 @@ func parseTableList(str string) ([]string, error) {
 	tables := strings.Split(str, ",")
 	for _, table := range tables {
 		if _, ok := TablesByName[table]; !ok {
-			return nil, fmt.Errorf("unknown table %q", table)
+			return nil, fmt.Errorf("unknown table: %q", table)
 		}
 	}
 	return tables, nil
+}
+
+func parseTaskList(str string) ([]string, error) {
+	tasks := strings.Split(str, ",")
+	for _, task := range tasks {
+		if _, ok := KnownTasks[task]; !ok {
+			return nil, fmt.Errorf("unknown task: %q", task)
+		}
+	}
+	return tasks, nil
 }

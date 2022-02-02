@@ -16,6 +16,11 @@ import (
 	"go.opencensus.io/stats/view"
 )
 
+const (
+	DefaultFilePerms = 0o664
+	DefaultDirPerms  = 0o775
+)
+
 var (
 	logger = logging.Logger(appName)
 

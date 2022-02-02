@@ -19,3 +19,5 @@ replace github.com/filecoin-project/filecoin-ffi => github.com/filecoin-project/
 
 // See https://github.com/ipfs/go-mfs/pull/88
 replace github.com/ipfs/go-mfs => github.com/ipfs/go-mfs v0.1.3-0.20210507195338-96fbfa122164
+
+replace github.com/filecoin-project/lily => github.com/filecoin-project/lily v0.8.6-0.20220202112242-5f907869f729
