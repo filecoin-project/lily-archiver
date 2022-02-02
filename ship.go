@@ -115,21 +115,6 @@ func ensureAncillaryFiles(shipPath string, tables []Table) error {
 }
 
 func ensureHeaderFiles(shipPath string, tables []Table) error {
-	// Check header path exists and is a directory
-	headerBasePath := filepath.Join(shipPath, networkConfig.name, "csv", strconv.Itoa(storageConfig.schemaVersion))
-	if err := os.MkdirAll(headerBasePath, DefaultDirPerms); err != nil {
-		return fmt.Errorf("mkdir %q: %w", headerBasePath, err)
-	}
-
-	info, err := os.Stat(headerBasePath)
-	if err != nil {
-		return fmt.Errorf("stat header base path: %w", err)
-	}
-
-	if !info.Mode().IsDir() {
-		return fmt.Errorf("header base path is not a directory")
-	}
-
 	var version model.Version
 	switch storageConfig.schemaVersion {
 	case 1:
@@ -144,6 +129,17 @@ func ensureHeaderFiles(shipPath string, tables []Table) error {
 	}
 
 	for _, table := range tables {
+		headerBasePath := filepath.Join(shipPath, networkConfig.name, "csv", strconv.Itoa(storageConfig.schemaVersion), table.Name)
+		if _, err := os.Stat(headerBasePath); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat header base path (%q): %w", headerBasePath, err)
+			}
+
+			if err := os.MkdirAll(headerBasePath, DefaultDirPerms); err != nil {
+				return fmt.Errorf("mkdir %q: %w", headerBasePath, err)
+			}
+		}
+
 		headerPath := filepath.Join(headerBasePath, table.Name+".header")
 
 		_, err := os.Stat(headerPath)
