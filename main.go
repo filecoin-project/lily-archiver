@@ -215,19 +215,15 @@ var app = &cli.App{
 						return fmt.Errorf("build manifest for period: %w", err)
 					}
 
-					fmt.Printf("== %s (%d-%d)\n", p.Date.String(), p.StartHeight, p.EndHeight)
 					for _, ef := range em.Files {
-						desc := ef.TableName
 						shipped := "x"
 						if ef.Shipped {
 							if !includeShipped {
 								continue
 							}
 							shipped = "S"
-							desc += "\t" + ef.Path()
 						}
-
-						fmt.Printf("%s %s\n", shipped, desc)
+						fmt.Printf("%s %s %d-%d %s\n", shipped, p.Date.String(), p.StartHeight, p.EndHeight, ef.TableName)
 					}
 
 				}
