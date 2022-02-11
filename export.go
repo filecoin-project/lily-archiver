@@ -60,7 +60,6 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 			}
 		}
 		if !allowed {
-			ll.Debugw("table not in allowed list", "table", t.Name)
 			continue
 		}
 
@@ -72,7 +71,6 @@ func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, gene
 			}
 		}
 		if !expected {
-			ll.Debugw("table not expected for this network version", "table", t.Name)
 			continue
 		}
 
