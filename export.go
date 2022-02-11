@@ -43,7 +43,6 @@ func manifestForDate(ctx context.Context, d Date, network string, genesisTs int6
 }
 
 func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, shipPath string, schemaVersion int, allowedTables []Table, compression Compression) (*ExportManifest, error) {
-	ll := logger.With("date", p.Date.String())
 	em := &ExportManifest{
 		Period:  p,
 		Network: network,

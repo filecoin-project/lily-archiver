@@ -40,12 +40,7 @@ type NetworkHeight struct {
 }
 
 // UpgradeSchedule is a list of heights at which each network version starts, sorted by height ascending.
-var UpgradeSchedule = []NetworkHeight{
-	// {
-	// 	Version: 0,
-	// 	Height:  0,
-	// },
-}
+var UpgradeSchedule = []NetworkHeight{}
 
 func setUpgradeSchedule(s string) error {
 	entries := strings.Split(s, ",")
