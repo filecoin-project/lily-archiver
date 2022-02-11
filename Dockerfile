@@ -18,7 +18,7 @@ RUN go build $GOFLAGS -trimpath -mod=readonly
 #-------------------------------------------------------------------
 
 #------------------------------------------------------
-FROM busybox:1-glibc
+FROM buildpack-deps:buster-curl
 MAINTAINER Ian Davis <ian.davis@protocol.ai>
 
 ENV SRC_PATH    /build/sentinel-archiver
@@ -28,4 +28,4 @@ COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
 ENTRYPOINT ["/usr/local/bin/sentinel-archiver"]
 
-CMD [""]
+CMD ["--help"]

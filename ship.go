@@ -73,6 +73,13 @@ func shipExportFile(ctx context.Context, ef *ExportFile, wi WalkInfo, shipPath s
 
 	info, err := os.Stat(walkFile)
 	if err != nil {
+		// It's ok if an export file does not exist. This can happen if there is no data or if a table has been
+		// made obsolete by a network upgrade. The verify process will have already detected any errors that may
+		// have prevented a table being written.
+		if !errors.Is(err, os.ErrNotExist) {
+			ll.Info("export file not found")
+			return nil
+		}
 		return fmt.Errorf("file %q stat error: %w", walkFile, err)
 	}
 

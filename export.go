@@ -71,7 +71,8 @@ var TableList = []Table{
 	{Name: "miner_pre_commit_infos", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerPreCommitInfo{}},
 	{Name: "miner_sector_deals", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorDeal{}},
 	{Name: "miner_sector_events", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorEvent{}},
-	{Name: "miner_sector_infos", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorInfo{}},
+	{Name: "miner_sector_infos_v7", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorInfo{}},  // added for actors v7 in network v15
+	{Name: "miner_sector_infos", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorInfoV1_4{}}, // used for actors v6 and below, up to network v14
 	{Name: "miner_sector_posts", Schema: 1, Task: "actorstatesminer", Model: &miner.MinerSectorPost{}},
 	{Name: "multisig_approvals", Schema: 1, Task: "msapprovals", Model: &msapprovals.MultisigApproval{}},
 	{Name: "multisig_transactions", Schema: 1, Task: "actorstatesmultisig", Model: &multisig.MultisigTransaction{}},
