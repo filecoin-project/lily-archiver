@@ -41,8 +41,9 @@ var (
 
 var (
 	networkConfig struct {
-		genesisTs int64
-		name      string
+		genesisTs       int64
+		name            string
+		upgradeSchedule string
 	}
 
 	networkFlags = []cli.Flag{
@@ -61,6 +62,14 @@ var (
 			Value:       MainnetGenesisTs, // could be overridden for test nets
 			Hidden:      true,
 			Destination: &networkConfig.genesisTs,
+		},
+		&cli.StringFlag{
+			Name:        "upgrade-schedule",
+			EnvVars:     []string{"ARCHIVER_UPGRADE_SCHEDULE"},
+			Usage:       "Network version upgrade schedule for the network. Use a comma separated list of version:height entries.",
+			Value:       "14:312746,15:682006",
+			Hidden:      true,
+			Destination: &networkConfig.upgradeSchedule,
 		},
 	}
 )
@@ -146,6 +155,10 @@ var (
 func configure(_ *cli.Context) error {
 	if err := logging.SetLogLevel(appName, loggingConfig.level); err != nil {
 		return fmt.Errorf("invalid log level: %w", err)
+	}
+
+	if err := setUpgradeSchedule(networkConfig.upgradeSchedule); err != nil {
+		return fmt.Errorf("invalid upgrade schedule: %w", err)
 	}
 
 	if diagnosticsConfig.debugAddr != "" {

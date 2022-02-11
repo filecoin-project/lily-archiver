@@ -101,7 +101,7 @@ var app = &cli.App{
 						return fmt.Errorf("invalid tasks specified")
 					}
 					for _, task := range taskList {
-						tables := TablesByTask(storageConfig.schemaVersion, task)
+						tables := TablesByTask(task, storageConfig.schemaVersion)
 						allowedTables = append(allowedTables, tables...)
 					}
 				}
