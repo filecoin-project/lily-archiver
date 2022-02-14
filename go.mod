@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.0
+	github.com/filecoin-project/go-state-types v0.1.3
 	github.com/filecoin-project/lily v0.8.2-0.20211022094029-438a4cac37cb
 	github.com/filecoin-project/specs-actors/v5 v5.0.4
 	github.com/ipfs/go-cid v0.1.0
@@ -79,7 +80,6 @@ require (
 	github.com/filecoin-project/go-jsonrpc v0.1.5 // indirect
 	github.com/filecoin-project/go-padreader v0.0.1 // indirect
 	github.com/filecoin-project/go-paramfetch v0.0.3-0.20220111000201-e42866db1a53 // indirect
-	github.com/filecoin-project/go-state-types v0.1.3 // indirect
 	github.com/filecoin-project/go-statemachine v1.0.1 // indirect
 	github.com/filecoin-project/go-statestore v0.1.1 // indirect
 	github.com/filecoin-project/go-storedcounter v0.0.0-20200421200003-1c99c62e8a5b // indirect
