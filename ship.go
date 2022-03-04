@@ -10,10 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/filecoin-project/lily/model"
-	"github.com/filecoin-project/lily/schemas/v1"
-	"github.com/filecoin-project/lily/storage"
 )
 
 type Compression struct {
@@ -118,23 +114,17 @@ func shipExportFile(ctx context.Context, ef *ExportFile, wi WalkInfo, shipPath s
 
 func ensureAncillaryFiles(shipPath string, tables []Table) error {
 	// Ensure header files are present for tables being exported
-	return ensureHeaderFiles(shipPath, tables)
+	if err := ensureHeaderFiles(shipPath, tables); err != nil {
+		return fmt.Errorf("ensure header files: %w", err)
+	}
+
+	if err := ensureSchemaFiles(shipPath, tables); err != nil {
+		return fmt.Errorf("ensure schema files: %w", err)
+	}
+	return nil
 }
 
 func ensureHeaderFiles(shipPath string, tables []Table) error {
-	var version model.Version
-	switch storageConfig.schemaVersion {
-	case 1:
-		version = v1.Version()
-	default:
-		return fmt.Errorf("unknown schema version")
-	}
-
-	strg, err := storage.NewCSVStorage("", version, storage.CSVStorageOptions{})
-	if err != nil {
-		return fmt.Errorf("new csv storage: %w", err)
-	}
-
 	for _, table := range tables {
 		headerBasePath := filepath.Join(shipPath, networkConfig.name, "csv", strconv.Itoa(storageConfig.schemaVersion), table.Name)
 		if _, err := os.Stat(headerBasePath); err != nil {
@@ -151,7 +141,6 @@ func ensureHeaderFiles(shipPath string, tables []Table) error {
 
 		_, err := os.Stat(headerPath)
 		if err == nil {
-			logger.Debugf("header file exists for %s", table.Name)
 			continue
 		}
 
@@ -159,13 +148,52 @@ func ensureHeaderFiles(shipPath string, tables []Table) error {
 			return fmt.Errorf("stat header path (%q): %w", headerPath, err)
 		}
 
-		headers, err := strg.ModelHeaders(table.Model)
+		logger.Debugf("writing header file for %s", table.Name)
+		headers, err := TableHeaders(table.Model)
 		if err != nil {
-			return fmt.Errorf("generate model headers for %s: %w", table.Name, err)
+			return fmt.Errorf("generate table headers for %s: %w", table.Name, err)
 		}
 
 		if err := os.WriteFile(headerPath, []byte(strings.Join(headers, ",")), DefaultFilePerms); err != nil {
-			return fmt.Errorf("write model headers for %s: %w", table.Name, err)
+			return fmt.Errorf("write table headers for %s: %w", table.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func ensureSchemaFiles(shipPath string, tables []Table) error {
+	for _, table := range tables {
+		schemaBasePath := filepath.Join(shipPath, networkConfig.name, "csv", strconv.Itoa(storageConfig.schemaVersion), table.Name)
+		if _, err := os.Stat(schemaBasePath); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat schema base path (%q): %w", schemaBasePath, err)
+			}
+
+			if err := os.MkdirAll(schemaBasePath, DefaultDirPerms); err != nil {
+				return fmt.Errorf("mkdir %q: %w", schemaBasePath, err)
+			}
+		}
+
+		schemaPath := filepath.Join(schemaBasePath, table.Name+".schema")
+
+		_, err := os.Stat(schemaPath)
+		if err == nil {
+			continue
+		}
+
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat schema path (%q): %w", schemaPath, err)
+		}
+
+		logger.Debugf("writing schema file for %s", table.Name)
+		schema, err := TableSchema(table.Model)
+		if err != nil {
+			return fmt.Errorf("generate table schema for %s: %w", table.Name, err)
+		}
+
+		if err := os.WriteFile(schemaPath, []byte(schema), DefaultFilePerms); err != nil {
+			return fmt.Errorf("write table schema for %s: %w", table.Name, err)
 		}
 	}
 

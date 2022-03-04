@@ -59,18 +59,24 @@ If Lily is restarted or becomes unavailable during a walk, the archiver will wai
 
 The archiver may be also restarted while a walk is in progress and it will attempt to find the correct one to wait for when it starts.
 
+Exports that contain errors are not shipped, leaving a potential gap in the archive. When the archiver next scans the archive folder these missing files will automatically be scheduled for processing. The archiver will issue a new walk to cover just the failed tables. (Note: although this prevents the archiver from shipping bad exports it can also hold up all exports if the errors encountered are permanent failures since they will appear during any subsequent walk).
+
 ## Notes
 
 The dates for naming archive files are calculated using UTC and start at midnight.
 
 Archive files files do not contain a header row so multiple CSV files for the same table can simply be concatenated.
-A file for each table containing a single header row will be published in the top level schema directory. 
+A file for each table containing a single header row will be added to each table’s folder.
+
+Header files providing column names for each table are in each table’s folder.
 This can be prefixed to any CSV file for that table if needed.
-For example: `mainnet/1/messages.header`
+For example: `mainnet/csv/1/messages/messages.header`
 
-A general schema definition for each table will be published as a file containing a name, datatype, nullability and comment for each column/field, for example: `mainnet/1/messages.schema`
+A general schema definition for each table will be published in each table’s folder. 
+This uses postgresql compatible DDL to document the table's column names and expected types. 
+For example: `mainnet/csv/1/messages.schema`
 
-JSON is encoded as a string field in the CSV. A null value is represented by the token null (without quotes).
+JSON is encoded as a string field in the CSV. A null value is represented by the token `null` (without quotes).
 
 The following tables have json fields:
  - actor_states.state
@@ -84,8 +90,7 @@ The following tables have datetime fields:
  - visor_processing_reports.started_at
  - visor_processing_reports.completed_at
 
-Null values are represented by the token `null` without quotes. 
-
+Refer to the [Lily project](https://github.com/filecoin-project/lily) for precise details of the CSV export.
 
 ## Code of Conduct
 

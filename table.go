@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/filecoin-project/go-state-types/network"
 	"github.com/filecoin-project/lily/model/actors/common"
 	init_ "github.com/filecoin-project/lily/model/actors/init"
@@ -15,6 +18,7 @@ import (
 	"github.com/filecoin-project/lily/model/derived"
 	"github.com/filecoin-project/lily/model/messages"
 	"github.com/filecoin-project/lily/model/msapprovals"
+	"github.com/go-pg/pg/v10/orm"
 )
 
 type Table struct {
@@ -320,4 +324,45 @@ func TablesByTask(task string, schemaVersion int) []Table {
 		}
 	}
 	return tables
+}
+
+func TableHeaders(v interface{}) ([]string, error) {
+	q := orm.NewQuery(nil, v)
+	tm := q.TableModel()
+	m := tm.Table()
+
+	if len(m.Fields) == 0 {
+		return nil, fmt.Errorf("invalid table model: no fields found")
+	}
+
+	var columns []string
+
+	for _, fld := range m.Fields {
+		columns = append(columns, fld.SQLName)
+	}
+	return columns, nil
+}
+
+func TableSchema(v interface{}) (string, error) {
+	q := orm.NewQuery(nil, v)
+	tm := q.TableModel()
+	m := tm.Table()
+
+	if len(m.Fields) == 0 {
+		return "", fmt.Errorf("invalid table model: no fields found")
+	}
+
+	name := strings.Trim(string(m.SQLNameForSelects), `"`)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("create table %s (\n", name))
+
+	var fieldDefs []string
+	for _, fld := range m.Fields {
+		fieldDefs = append(fieldDefs, fmt.Sprintf("  %s %s", fld.Column, fld.SQLType))
+	}
+	sb.WriteString(strings.Join(fieldDefs, ",\n"))
+	sb.WriteString("\n);\n")
+
+	return sb.String(), nil
 }

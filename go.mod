@@ -7,6 +7,7 @@ require (
 	github.com/filecoin-project/go-state-types v0.1.3
 	github.com/filecoin-project/lily v0.8.2-0.20211022094029-438a4cac37cb
 	github.com/filecoin-project/specs-actors/v5 v5.0.4
+	github.com/go-pg/pg/v10 v10.10.6
 	github.com/ipfs/go-cid v0.1.0
 	github.com/ipfs/go-log/v2 v2.3.0
 	github.com/ipfs/go-metrics-interface v0.0.1
@@ -104,7 +105,6 @@ require (
 	github.com/go-logfmt/logfmt v0.5.1 // indirect
 	github.com/go-ole/go-ole v1.2.5 // indirect
 	github.com/go-pg/migrations/v8 v8.0.1 // indirect
-	github.com/go-pg/pg/v10 v10.10.6 // indirect
 	github.com/go-pg/zerochecker v0.2.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/godbus/dbus/v5 v5.0.4 // indirect
