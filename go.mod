@@ -331,8 +331,7 @@ require (
 	mellium.im/sasl v0.2.1 // indirect
 )
 
-// See https://github.com/filecoin-project/ffi-stub/tree/v7
-replace github.com/filecoin-project/filecoin-ffi => github.com/filecoin-project/ffi-stub v0.2.1-0.20220208160627-c3983799b413
+replace github.com/filecoin-project/filecoin-ffi => github.com/filecoin-project/ffi-stub v0.3.0
 
 // See https://github.com/ipfs/go-mfs/pull/88
 replace github.com/ipfs/go-mfs => github.com/ipfs/go-mfs v0.1.3-0.20210507195338-96fbfa122164
