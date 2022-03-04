@@ -74,7 +74,7 @@ For example: `mainnet/csv/1/messages/messages.header`
 
 A general schema definition for each table will be published in each table’s folder. 
 This uses postgresql compatible DDL to document the table's column names and expected types. 
-For example: `mainnet/csv/1/messages.schema`
+For example: `mainnet/csv/1/messages/messages.schema`
 
 JSON is encoded as a string field in the CSV. A null value is represented by the token `null` (without quotes).
 
