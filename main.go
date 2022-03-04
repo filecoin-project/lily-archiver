@@ -8,9 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/lily/model"
-	"github.com/filecoin-project/lily/schemas/v1"
-	"github.com/filecoin-project/lily/storage"
 	metrics "github.com/ipfs/go-metrics-interface"
 	"github.com/urfave/cli/v2"
 )
@@ -319,68 +316,6 @@ var app = &cli.App{
 
 				if reportFailed {
 					return fmt.Errorf("one or more verification failures found")
-				}
-				return nil
-			},
-		},
-
-		{
-			Name:   "headers",
-			Usage:  "Write header files for tables.",
-			Before: configure,
-			Flags: flagSet(
-				loggingFlags,
-				[]cli.Flag{
-					&cli.StringFlag{
-						Name:     "tables",
-						EnvVars:  []string{"ARCHIVER_TABLES"},
-						Required: true,
-					},
-					&cli.StringFlag{
-						Name:     "ship-path",
-						EnvVars:  []string{"ARCHIVER_SHIP_PATH"},
-						Usage:    "Path used to write verified exports from lily.",
-						Required: true,
-					},
-					&cli.IntFlag{
-						Name:    "storage-schema",
-						EnvVars: []string{"ARCHIVER_STORAGE_SCHEMA"},
-						Usage:   "Version of schema to used by storage.",
-						Value:   1,
-					},
-				},
-			),
-			Action: func(cc *cli.Context) error {
-				// shipPath := cc.String("ship-path")
-
-				tables, err := parseTableList(cc.String("tables"))
-				if err != nil {
-					return fmt.Errorf("invalid tables: %w", err)
-				}
-
-				var version model.Version
-				switch cc.Int("storage-schema") {
-				case 1:
-					version = v1.Version()
-				default:
-					return fmt.Errorf("unknown schema version")
-				}
-
-				strg, err := storage.NewCSVStorage("", version, storage.CSVStorageOptions{})
-				if err != nil {
-					return fmt.Errorf("new csv storage: %w", err)
-				}
-
-				for _, table := range tables {
-					t, ok := TablesByName[table]
-					if !ok {
-						return fmt.Errorf("unknown table: %s", table)
-					}
-					headers, err := strg.ModelHeaders(t.Model)
-					if err != nil {
-						return fmt.Errorf("model headers: %w", err)
-					}
-					fmt.Println(strings.Join(headers, ","))
 				}
 				return nil
 			},
