@@ -685,7 +685,7 @@ func lilyIsSyncedToEpoch(apiAddr string, apiToken string, em *ExportManifest, ll
 		}
 
 		if height < em.Period.EndHeight {
-			ll.Infow("lily is not synced to necessary epoch", "lily_height", height, "required_height", em.Period.EndHeight)
+			ll.Infow("lily is not synced to necessary epoch", "lily_height", height)
 			return false, nil
 		}
 
