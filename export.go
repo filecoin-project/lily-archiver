@@ -315,6 +315,10 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 		return fmt.Errorf("failed waiting for earliest export time: %w", err)
 	}
 
+	if err := WaitUntil(ctx, lilyIsSyncedToEpoch(lilyConfig.apiAddr, lilyConfig.apiToken, em, ll), 0, time.Minute*10); err != nil {
+		return fmt.Errorf("failed waiting for lily to sync to required epoch: %w", err)
+	}
+
 	var wi WalkInfo
 	if err := WaitUntil(ctx, walkIsCompleted(lilyConfig.apiAddr, lilyConfig.apiToken, em, &wi, ll), 0, time.Second*30); err != nil {
 		return fmt.Errorf("failed performing walk: %w", err)
@@ -662,4 +666,38 @@ func equalStringSlices(a, b []string) bool {
 	}
 
 	return true
+}
+
+func lilyIsSyncedToEpoch(apiAddr string, apiToken string, em *ExportManifest, ll basicLogger) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+		if err != nil {
+			lilyConnectionErrorsCounter.Inc()
+			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
+			return false, nil
+		}
+		defer closer()
+
+		height, err := getLilyChainHeight(ctx, api)
+		if err != nil {
+			ll.Errorw(fmt.Sprintf("failed to get chain head: %v", err))
+			return false, nil
+		}
+
+		if height < em.Period.EndHeight {
+			ll.Infow("lily is not synced to necessary epoch", "lily_height", height, "required_height", em.Period.EndHeight)
+			return false, nil
+		}
+
+		return true, nil
+	}
+}
+
+func getLilyChainHeight(ctx context.Context, api lily.LilyAPI) (int64, error) {
+	ts, err := api.ChainHead(ctx)
+	if err != nil {
+		return -1, err
+	}
+
+	return int64(ts.Height()), nil
 }
