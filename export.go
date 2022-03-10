@@ -303,7 +303,7 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 		return nil
 	}
 
-	processExportStartedCounter.Inc()
+	exportStartHeightGauge.Set(float64(em.Period.EndHeight + Finality))
 	ll.Info("preparing to export files for shipping")
 
 	// We must wait for one full finality after the end of the period before running the export
@@ -318,6 +318,12 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 	if err := WaitUntil(ctx, lilyIsSyncedToEpoch(lilyConfig.apiAddr, lilyConfig.apiToken, em, ll), 0, time.Minute*10); err != nil {
 		return fmt.Errorf("failed waiting for lily to sync to required epoch: %w", err)
 	}
+
+	processExportStartedCounter.Inc()
+	processExportInProgressGauge.Set(1)
+	defer func() {
+		processExportInProgressGauge.Set(0)
+	}()
 
 	var wi WalkInfo
 	if err := WaitUntil(ctx, walkIsCompleted(lilyConfig.apiAddr, lilyConfig.apiToken, em, &wi, ll), 0, time.Second*30); err != nil {

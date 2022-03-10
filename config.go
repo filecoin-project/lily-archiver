@@ -230,6 +230,8 @@ func startPrometheusServer() error {
 // metrics
 var (
 	exportLastCompletedHeightGauge metrics.Gauge
+	exportStartHeightGauge         metrics.Gauge
+	processExportInProgressGauge   metrics.Gauge
 	processExportStartedCounter    metrics.Counter
 	processExportErrorsCounter     metrics.Counter
 	lilyConnectionErrorsCounter    metrics.Counter
@@ -241,9 +243,11 @@ var (
 
 func setupMetrics(ctx context.Context) {
 	exportLastCompletedHeightGauge = metrics.NewCtx(ctx, "export_last_completed_height", "Height of last completed export").Gauge()
+	exportStartHeightGauge = metrics.NewCtx(ctx, "export_start_height", "Height at which next export can be started (one finality after midnight)").Gauge()
 	lilyConnectionErrorsCounter = metrics.NewCtx(ctx, "lily_connection_errors_total", "Total number of errors encountered connecting to lily node").Counter()
 	lilyJobErrorsCounter = metrics.NewCtx(ctx, "lily_job_errors_total", "Total number of errors encountered while managing lily jobs").Counter()
 	processExportStartedCounter = metrics.NewCtx(ctx, "process_export_started_total", "Total number of exports that have started processing").Counter()
+	processExportInProgressGauge = metrics.NewCtx(ctx, "process_export_in_progress", "Number of exports currently in progress").Gauge()
 	processExportErrorsCounter = metrics.NewCtx(ctx, "process_export_errors_total", "Total number of errors encountered processing an export").Counter()
 	walkErrorsCounter = metrics.NewCtx(ctx, "walk_errors_total", "Total number of errors encountered creating and waiting for walks to complete").Counter()
 	verifyTableErrorsCounter = metrics.NewCtx(ctx, "verify_table_errors_total", "Total number of errors encountered verifying an exported table").Counter()
