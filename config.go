@@ -145,6 +145,7 @@ var (
 		},
 		&cli.StringFlag{
 			Name:        "prometheus-addr",
+			EnvVars:     []string{"ARCHIVER_PROMETHEUS_ADDR"},
 			Usage:       "Network address to start a prometheus metric exporter server on (example: :9991)",
 			Value:       "",
 			Destination: &diagnosticsConfig.prometheusAddr,
