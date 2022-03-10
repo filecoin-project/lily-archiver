@@ -31,9 +31,9 @@ var (
 	loggingFlags = []cli.Flag{
 		&cli.StringFlag{
 			Name:        "log-level",
-			EnvVars:     []string{"GOLOG_LOG_LEVEL"},
-			Value:       "ERROR",
-			Usage:       "Set the default log level for all loggers to `LEVEL`",
+			EnvVars:     []string{"ARCHIVER_LOG_LEVEL"},
+			Value:       "INFO",
+			Usage:       "Set the default log level for the archiver logger to `LEVEL`",
 			Destination: &loggingConfig.level,
 		},
 	}

@@ -454,7 +454,7 @@ func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID, ll basicLog
 	// To ensure this is robust in the case of a lily node restarting or being temporarily unresponsive, this
 	// function opens its own api connection and never returns an error unless the job cannot be found
 	return func(ctx context.Context) (bool, error) {
-		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+		api, closer, err := getLilyAPI(ctx, apiAddr, apiToken)
 		if err != nil {
 			lilyConnectionErrorsCounter.Inc()
 			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
@@ -482,7 +482,7 @@ func jobHasEnded(apiAddr string, apiToken string, id schedule.JobID, ll basicLog
 // note: jobID is an out parameter and the name in walkCfg may be updated with an existing name
 func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkConfig, jobID *schedule.JobID, ll basicLogger) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
-		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+		api, closer, err := getLilyAPI(ctx, apiAddr, apiToken)
 		if err != nil {
 			lilyConnectionErrorsCounter.Inc()
 			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
@@ -521,7 +521,7 @@ func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkCo
 
 func jobGetResult(apiAddr string, apiToken string, walkName string, walkID schedule.JobID, jobListRes *schedule.JobListResult, ll basicLogger) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
-		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+		api, closer, err := getLilyAPI(ctx, apiAddr, apiToken)
 		if err != nil {
 			lilyConnectionErrorsCounter.Inc()
 			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
@@ -670,7 +670,7 @@ func equalStringSlices(a, b []string) bool {
 
 func lilyIsSyncedToEpoch(apiAddr string, apiToken string, em *ExportManifest, ll basicLogger) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
-		api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+		api, closer, err := getLilyAPI(ctx, apiAddr, apiToken)
 		if err != nil {
 			lilyConnectionErrorsCounter.Inc()
 			ll.Errorf("failed to connect to lily api at %s: %v", apiAddr, err)
@@ -700,4 +700,26 @@ func getLilyChainHeight(ctx context.Context, api lily.LilyAPI) (int64, error) {
 	}
 
 	return int64(ts.Height()), nil
+}
+
+type closerFunc func()
+
+func getLilyAPI(ctx context.Context, apiAddr string, apiToken string) (lily.LilyAPI, closerFunc, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	tick := time.NewTicker(3 * time.Second)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-tick.C:
+			api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+			if err == nil {
+				return api, closerFunc(closer), nil
+			}
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		}
+	}
 }
