@@ -303,6 +303,12 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 		return nil
 	}
 
+	for _, f := range em.Files {
+		if !f.Shipped {
+			ll.Debugf("missing table %s", f.TableName)
+		}
+	}
+
 	exportStartHeightGauge.Set(float64(em.Period.EndHeight + Finality))
 	ll.Info("preparing to export files for shipping")
 
