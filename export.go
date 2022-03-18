@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -603,7 +602,7 @@ func findExistingJob(ctx context.Context, api lily.LilyAPI, walkCfg *lily.LilyWa
 			continue
 		}
 
-		if !equalStringSlices(jr.Tasks, walkCfg.Tasks) {
+		if !stringSliceContainsAll(jr.Tasks, walkCfg.Tasks) {
 			continue
 		}
 
@@ -658,21 +657,20 @@ func removeExportFile(ctx context.Context, ef *ExportFile, wi WalkInfo) error {
 	return nil
 }
 
-func equalStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
+func stringSliceContainsAll(haystack, needles []string) bool {
+	if len(haystack) < len(needles) {
 		return false
 	}
 
-	acopy := make([]string, len(a))
-	copy(acopy, a)
-	sort.Strings(acopy)
-
-	bcopy := make([]string, len(b))
-	copy(bcopy, b)
-	sort.Strings(bcopy)
-
-	for i := range acopy {
-		if acopy[i] != bcopy[i] {
+	for _, needle := range needles {
+		found := false
+		for i := range haystack {
+			if haystack[i] == needle {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return false
 		}
 	}
