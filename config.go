@@ -67,7 +67,7 @@ var (
 			Name:        "upgrade-schedule",
 			EnvVars:     []string{"ARCHIVER_UPGRADE_SCHEDULE"},
 			Usage:       "Network version upgrade schedule for the network. Use a comma separated list of version:height entries. Only upgrades that affect Lily model versions need be included.",
-			Value:       "14:1231620", // mainnet by default
+			Value:       "14:1231620,15:1594680", // mainnet by default
 			Hidden:      true,
 			Destination: &networkConfig.upgradeSchedule,
 		},
