@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +18,8 @@ import (
 	"github.com/filecoin-project/lily/lens/lily"
 	"github.com/filecoin-project/lily/schedule"
 	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 var ErrJobNotFound = errors.New("job not found")
@@ -263,15 +267,17 @@ func walkForManifest(em *ExportManifest) (*lily.LilyWalkConfig, error) {
 	}
 
 	return &lily.LilyWalkConfig{
-		Name:                walkName,
-		Tasks:               tasks,
-		Window:              0, // no time out
-		From:                em.Period.StartHeight,
-		To:                  em.Period.EndHeight,
-		RestartDelay:        0,
-		RestartOnCompletion: false,
-		RestartOnFailure:    false,
-		Storage:             storageConfig.name,
+		JobConfig: lily.LilyJobConfig{
+			Name:                walkName,
+			Tasks:               tasks,
+			Window:              0, // no time out
+			RestartDelay:        0,
+			RestartOnCompletion: false,
+			RestartOnFailure:    false,
+			Storage:             storageConfig.name,
+		},
+		From: em.Period.StartHeight,
+		To:   em.Period.EndHeight,
 	}, nil
 }
 
@@ -413,46 +419,46 @@ func walkIsCompleted(apiAddr string, apiToken string, em *ExportManifest, walkIn
 			ll.Errorf("failed to create walk configuration: %v")
 			return false, nil
 		}
-		ll.Debugw(fmt.Sprintf("using tasks %s", strings.Join(walkCfg.Tasks, ",")), "walk", walkCfg.Name)
+		ll.Debugw(fmt.Sprintf("using tasks %s", strings.Join(walkCfg.JobConfig.Tasks, ",")), "walk", walkCfg.JobConfig.Name)
 
 		var jobID schedule.JobID
-		ll.Infow("starting walk", "walk", walkCfg.Name)
+		ll.Infow("starting walk", "walk", walkCfg.JobConfig.Name)
 		if err := WaitUntil(ctx, jobHasBeenStarted(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg, &jobID, ll), 0, time.Second*30); err != nil {
 			walkErrorsCounter.Inc()
-			ll.Errorw(fmt.Sprintf("failed starting walk: %v", err), "walk", walkCfg.Name)
+			ll.Errorw(fmt.Sprintf("failed starting walk: %v", err), "walk", walkCfg.JobConfig.Name)
 			return false, nil
 		}
 
-		ll.Infow("waiting for walk to complete", "walk", walkCfg.Name, "job_id", jobID)
+		ll.Infow("waiting for walk to complete", "walk", walkCfg.JobConfig.Name, "job_id", jobID)
 		if err := WaitUntil(ctx, jobHasEnded(lilyConfig.apiAddr, lilyConfig.apiToken, jobID, ll), time.Second*30, time.Second*30); err != nil {
 			walkErrorsCounter.Inc()
-			ll.Errorw(fmt.Sprintf("failed waiting for walk to finish: %v", err), "walk", walkCfg.Name, "job_id", jobID)
+			ll.Errorw(fmt.Sprintf("failed waiting for walk to finish: %v", err), "walk", walkCfg.JobConfig.Name, "job_id", jobID)
 			return false, nil
 		}
 
-		ll.Infow("walk complete", "walk", walkCfg.Name, "job_id", jobID)
+		ll.Infow("walk complete", "walk", walkCfg.JobConfig.Name, "job_id", jobID)
 		var jobListRes schedule.JobListResult
-		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.Name, jobID, &jobListRes, ll), 0, time.Second*30); err != nil {
+		if err := WaitUntil(ctx, jobGetResult(lilyConfig.apiAddr, lilyConfig.apiToken, walkCfg.JobConfig.Name, jobID, &jobListRes, ll), 0, time.Second*30); err != nil {
 			walkErrorsCounter.Inc()
-			ll.Errorw(fmt.Sprintf("failed waiting walk result: %v", err), "walk", walkCfg.Name, "job_id", jobID)
+			ll.Errorw(fmt.Sprintf("failed waiting walk result: %v", err), "walk", walkCfg.JobConfig.Name, "job_id", jobID)
 			return false, nil
 		}
 
 		if jobListRes.Error != "" {
 			walkErrorsCounter.Inc()
-			ll.Errorw(fmt.Sprintf("walk failed: %s", jobListRes.Error), "walk", walkCfg.Name, "job_id", jobID)
+			ll.Errorw(fmt.Sprintf("walk failed: %s", jobListRes.Error), "walk", walkCfg.JobConfig.Name, "job_id", jobID)
 			return false, nil
 		}
 
 		wi := WalkInfo{
-			Name:   walkCfg.Name,
+			Name:   walkCfg.JobConfig.Name,
 			Path:   storageConfig.path,
 			Format: "csv",
 		}
 		err = touchExportFiles(ctx, em, wi)
 		if err != nil {
 			walkErrorsCounter.Inc()
-			ll.Errorw(fmt.Sprintf("failed to touch export files: %v", err), "walk", walkCfg.Name)
+			ll.Errorw(fmt.Sprintf("failed to touch export files: %v", err), "walk", walkCfg.JobConfig.Name)
 			return false, nil
 		}
 
@@ -513,7 +519,7 @@ func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkCo
 			// No existing job, start a new walk
 			res, err := api.LilyWalk(ctx, walkCfg)
 			if err != nil {
-				ll.Errorw("failed to create walk", "error", err, "walk", walkCfg.Name)
+				ll.Errorw("failed to create walk", "error", err, "walk", walkCfg.JobConfig.Name)
 				return false, nil
 			}
 
@@ -525,7 +531,7 @@ func jobHasBeenStarted(apiAddr string, apiToken string, walkCfg *lily.LilyWalkCo
 
 		ll.Infow("adopting running walk that matched required job", "job_id", jr.ID, "walk", jr.Name)
 		*jobID = jr.ID
-		walkCfg.Name = jr.Name
+		walkCfg.JobConfig.Name = jr.Name
 		return true, nil
 	}
 }
@@ -588,7 +594,7 @@ func findExistingJob(ctx context.Context, api lily.LilyAPI, walkCfg *lily.LilyWa
 			continue
 		}
 
-		if jr.Params["storage"] != walkCfg.Storage {
+		if jr.Params["storage"] != walkCfg.JobConfig.Storage {
 			continue
 		}
 
@@ -602,7 +608,7 @@ func findExistingJob(ctx context.Context, api lily.LilyAPI, walkCfg *lily.LilyWa
 			continue
 		}
 
-		if !stringSliceContainsAll(jr.Tasks, walkCfg.Tasks) {
+		if !stringSliceContainsAll(jr.Tasks, walkCfg.JobConfig.Tasks) {
 			continue
 		}
 
@@ -715,6 +721,13 @@ func getLilyChainHeight(ctx context.Context, api lily.LilyAPI) (int64, error) {
 type closerFunc func()
 
 func getLilyAPI(ctx context.Context, apiAddr string, apiToken string) (lily.LilyAPI, closerFunc, error) {
+	dialAddr, err := apiDialAddr(apiAddr, "v0")
+	if err != nil {
+		return nil, nil, fmt.Errorf("api dial addr: %v", err)
+	}
+
+	authHeader := apiAuthHeader(apiToken)
+
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -724,7 +737,7 @@ func getLilyAPI(ctx context.Context, apiAddr string, apiToken string) (lily.Lily
 	for {
 		select {
 		case <-tick.C:
-			api, closer, err := commands.GetAPI(ctx, apiAddr, apiToken)
+			api, closer, err := commands.NewSentinelNodeRPC(ctx, dialAddr, authHeader)
 			if err == nil {
 				return api, closerFunc(closer), nil
 			}
@@ -732,4 +745,31 @@ func getLilyAPI(ctx context.Context, apiAddr string, apiToken string) (lily.Lily
 			return nil, nil, ctx.Err()
 		}
 	}
+}
+
+func apiDialAddr(addr string, version string) (string, error) {
+	ma, err := multiaddr.NewMultiaddr(addr)
+	if err == nil {
+		_, daddr, err := manet.DialArgs(ma)
+		if err != nil {
+			return "", err
+		}
+
+		return "ws://" + daddr + "/rpc/" + version, nil
+	}
+
+	_, err = url.Parse(addr)
+	if err != nil {
+		return "", err
+	}
+	return addr + "/rpc/" + version, nil
+}
+
+func apiAuthHeader(token string) http.Header {
+	if len(token) != 0 {
+		headers := http.Header{}
+		headers.Add("Authorization", "Bearer "+token)
+		return headers
+	}
+	return nil
 }
