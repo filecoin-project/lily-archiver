@@ -62,6 +62,11 @@ var app = &cli.App{
 						Usage:   "Minimum height that should be exported. This may be used for nodes that do not have full state history.",
 						Value:   1005360, // TODO: remove default
 					},
+					&cli.Int64Flag{
+						Name:    "max-height",
+						EnvVars: []string{"ARCHIVER_MAX_HEIGHT"},
+						Usage:   "Maximum height that should be exported. If not specified the achiver will continue forever, waiting for the chain to advance.",
+					},
 					&cli.StringFlag{
 						Name:    "tasks",
 						EnvVars: []string{"ARCHIVER_TASKS"},
@@ -84,6 +89,7 @@ var app = &cli.App{
 				tasks := cc.String("tasks")
 				shipPath := cc.String("ship-path")
 				minHeight := cc.Int64("min-height")
+				maxHeight := cc.Int64("max-height")
 
 				// Build list of allowed tables. Could be all tables.
 				var allowedTables []Table
@@ -124,6 +130,12 @@ var app = &cli.App{
 					}
 					exportLastCompletedHeightGauge.Set(float64(p.EndHeight))
 					p = p.Next()
+
+					if maxHeight > 0 && maxHeight < p.EndHeight {
+						logger.Infof("reached configured maximum height")
+						return nil
+					}
+
 				}
 			},
 		},
