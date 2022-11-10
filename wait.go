@@ -2,9 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -26,34 +23,6 @@ func WaitUntil(ctx context.Context, condition func(context.Context) (bool, error
 	for {
 		select {
 		case <-tick.C:
-			done, err := condition(ctx)
-			if err != nil {
-				return err
-			}
-			if done {
-				return nil
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
-func Wait(ctx context.Context, condition func(context.Context) (bool, error)) error {
-	done, err := condition(ctx)
-	if err != nil || done == false {
-		return err
-	}
-	if done {
-		return nil
-	}
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
-	for {
-		select {
-		case <-c:
 			done, err := condition(ctx)
 			if err != nil {
 				return err

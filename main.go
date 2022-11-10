@@ -425,6 +425,7 @@ var app = &cli.App{
 
 				if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Second*1); err != nil {
 					return fmt.Errorf("fatal error processing export: %w", err)
+					os.Exit(1) // force to exit
 				}
 
 				return nil
