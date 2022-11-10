@@ -19,6 +19,8 @@ var version string
 
 const appName = "archiver"
 
+const epochInSeconds = 30
+
 func init() {
 	version = rawVersion
 	if idx := strings.Index(version, "\n"); idx > -1 {
@@ -411,7 +413,7 @@ var app = &cli.App{
 					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
-				date := time.Unix(MainnetGenesisTs+minHeight, 0).UTC()
+				date := time.Unix(MainnetGenesisTs+minHeight*epochInSeconds, 0).UTC()
 
 				p := ExportPeriod{
 					Date: Date{
