@@ -423,9 +423,14 @@ var app = &cli.App{
 					EndHeight:   maxHeight,
 				}
 
-				if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Second*1); err != nil {
-					return fmt.Errorf("fatal error processing export: %w", err)
-					os.Exit(1) // force to exit
+				em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, shipPath, storageConfig.schemaVersion, allowedTables, c)
+				if err != nil {
+					return fmt.Errorf("failed to create manifest", "error", err, "date", p.Date.String())
+				}
+				if err := processExport(ctx, em, shipPath); err != nil {
+					processExportErrorsCounter.Inc()
+					logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
+					return fmt.Errorf("failed to process export", "error", err)
 				}
 
 				return nil
