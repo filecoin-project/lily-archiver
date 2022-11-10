@@ -419,7 +419,7 @@ var app = &cli.App{
 				endHeight := p.EndHeight
 
 				if maxHeight > 0 && maxHeight < endHeight {
-					p.EndHeight = maxHeight + 1 // inclusive end range
+					p.EndHeight = maxHeight
 				}
 
 				if err := Wait(ctx, exportIsProcessed(p, allowedTables, c, shipPath)); err != nil {
