@@ -423,7 +423,7 @@ var app = &cli.App{
 					EndHeight:   maxHeight,
 				}
 
-				if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Second*0); err != nil {
+				if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Second*1); err != nil {
 					return fmt.Errorf("fatal error processing export: %w", err)
 				}
 
