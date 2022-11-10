@@ -123,6 +123,13 @@ var app = &cli.App{
 				}
 
 				p := firstExportPeriodAfter(minHeight, networkConfig.genesisTs)
+				endHeight := p.EndHeight
+
+				// If maxHeight is provided, let's assume a non-daily export
+				if maxHeight > 0 && maxHeight < endHeight {
+					p.EndHeight = maxHeight
+				}
+
 				for {
 					// Retry this export until it works
 					if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Minute*15); err != nil {
@@ -131,11 +138,10 @@ var app = &cli.App{
 					exportLastCompletedHeightGauge.Set(float64(p.EndHeight))
 					p = p.Next()
 
-					if maxHeight > 0 && maxHeight < p.EndHeight {
+					if maxHeight > 0 && maxHeight < endHeight {
 						logger.Infof("reached configured maximum height")
 						return nil
 					}
-
 				}
 			},
 		},
