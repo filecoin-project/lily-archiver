@@ -65,7 +65,7 @@ var app = &cli.App{
 					&cli.Int64Flag{
 						Name:    "max-height",
 						EnvVars: []string{"ARCHIVER_MAX_HEIGHT"},
-						Usage:   "Maximum height that should be exported. If not specified the achiver will continue forever, waiting for the chain to advance.",
+						Usage:   "Maximum height that should be exported. If not specified the archiver will continue forever, waiting for the chain to advance.",
 					},
 					&cli.StringFlag{
 						Name:    "tasks",
@@ -123,13 +123,6 @@ var app = &cli.App{
 				}
 
 				p := firstExportPeriodAfter(minHeight, networkConfig.genesisTs)
-				endHeight := p.EndHeight
-
-				// If maxHeight is provided, let's assume a non-daily export
-				if maxHeight > 0 && maxHeight < endHeight {
-					p.EndHeight = maxHeight
-				}
-
 				for {
 					// Retry this export until it works
 					if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Minute*15); err != nil {
@@ -138,7 +131,7 @@ var app = &cli.App{
 					exportLastCompletedHeightGauge.Set(float64(p.EndHeight))
 					p = p.Next()
 
-					if maxHeight > 0 && maxHeight < endHeight {
+					if maxHeight > 0 && maxHeight < p.EndHeight {
 						logger.Infof("reached configured maximum height")
 						return nil
 					}
@@ -335,6 +328,104 @@ var app = &cli.App{
 				if reportFailed {
 					return fmt.Errorf("one or more verification failures found")
 				}
+				return nil
+			},
+		},
+
+		{
+			Name:   "export",
+			Usage:  "Produce epoch-bound archives of Lily data.",
+			Before: configure,
+			Flags: flagSet(
+				loggingFlags,
+				networkFlags,
+				lilyFlags,
+				storageFlags,
+				diagnosticsFlags,
+				[]cli.Flag{
+					&cli.StringFlag{
+						Name:     "ship-path",
+						EnvVars:  []string{"ARCHIVER_SHIP_PATH"},
+						Usage:    "Path used to write verified exports from lily.",
+						Required: true,
+					},
+					&cli.Int64Flag{
+						Name:    "min-height",
+						EnvVars: []string{"ARCHIVER_MIN_HEIGHT"},
+						Usage:   "Minimum height that should be exported. This may be used for nodes that do not have full state history.",
+						Value:   1005360, // TODO: remove default
+					},
+					&cli.Int64Flag{
+						Name:    "max-height",
+						EnvVars: []string{"ARCHIVER_MAX_HEIGHT"},
+						Usage:   "Maximum height that should be exported. If not specified the archiver will continue forever, waiting for the chain to advance.",
+					},
+					&cli.StringFlag{
+						Name:    "tasks",
+						EnvVars: []string{"ARCHIVER_TASKS"},
+						Usage:   "Comma separated list of tasks that are allowed to be processed. Default is all tasks.",
+						Value:   "",
+					},
+					&cli.StringFlag{
+						Name:    "compression",
+						EnvVars: []string{"ARCHIVER_COMPRESSION"},
+						Usage:   "Type of compression to use.",
+						Value:   "gz",
+						Hidden:  true,
+					},
+				},
+			),
+			Action: func(cc *cli.Context) error {
+				ctx := metrics.CtxScope(cc.Context, appName)
+				setupMetrics(ctx)
+
+				tasks := cc.String("tasks")
+				shipPath := cc.String("ship-path")
+				minHeight := cc.Int64("min-height")
+				maxHeight := cc.Int64("max-height")
+
+				// Build list of allowed tables. Could be all tables.
+				var allowedTables []Table
+				if tasks == "" || tasks == "all" {
+					allowedTables = append(allowedTables, TableList...)
+				} else {
+					taskList, err := parseTaskList(cc.String("tasks"))
+					if err != nil {
+						return fmt.Errorf("invalid tasks specified: %v", err)
+					}
+					if len(taskList) == 0 {
+						return fmt.Errorf("invalid tasks specified")
+					}
+					for _, task := range taskList {
+						tables := TablesByTask(task, storageConfig.schemaVersion)
+						allowedTables = append(allowedTables, tables...)
+					}
+				}
+
+				c, ok := CompressionByName[cc.String("compression")]
+				if !ok {
+					return fmt.Errorf("unknown compression %q", cc.String("compression"))
+				}
+
+				if err := verifyShipDependencies(shipPath, c); err != nil {
+					return fmt.Errorf("unable to ship files: %w", err)
+				}
+
+				if err := ensureAncillaryFiles(shipPath, allowedTables); err != nil {
+					return fmt.Errorf("unable to ensure ancillary files exist: %w", err)
+				}
+
+				p := firstExportPeriodAfter(minHeight, networkConfig.genesisTs)
+				endHeight := p.EndHeight
+
+				if maxHeight > 0 && maxHeight < endHeight {
+					p.EndHeight = maxHeight + 1 // inclusive end range
+				}
+
+				if err := Wait(ctx, exportIsProcessed(p, allowedTables, c, shipPath)); err != nil {
+					return fmt.Errorf("fatal error processing export: %w", err)
+				}
+
 				return nil
 			},
 		},
