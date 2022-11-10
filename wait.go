@@ -41,7 +41,7 @@ func WaitUntil(ctx context.Context, condition func(context.Context) (bool, error
 
 func Wait(ctx context.Context, condition func(context.Context) (bool, error)) error {
 	done, err := condition(ctx)
-	if err != nil {
+	if err != nil || done == false {
 		return err
 	}
 	if done {

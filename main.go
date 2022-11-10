@@ -411,18 +411,19 @@ var app = &cli.App{
 					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
-				if err := ensureAncillaryFiles(shipPath, allowedTables); err != nil {
-					return fmt.Errorf("unable to ensure ancillary files exist: %w", err)
+				date := time.Unix(MainnetGenesisTs+minHeight, 0).UTC()
+
+				p := ExportPeriod{
+					Date: Date{
+						Year:  date.Year(),
+						Month: int(date.Month()),
+						Day:   date.Day(),
+					},
+					StartHeight: minHeight,
+					EndHeight:   maxHeight,
 				}
 
-				p := firstExportPeriodAfter(minHeight, networkConfig.genesisTs)
-				endHeight := p.EndHeight
-
-				if maxHeight > 0 && maxHeight < endHeight {
-					p.EndHeight = maxHeight
-				}
-
-				if err := Wait(ctx, exportIsProcessed(p, allowedTables, c, shipPath)); err != nil {
+				if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Second*0); err != nil {
 					return fmt.Errorf("fatal error processing export: %w", err)
 				}
 
