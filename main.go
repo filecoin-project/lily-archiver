@@ -414,7 +414,9 @@ var app = &cli.App{
 				}
 
 				date := time.Unix(MainnetGenesisTs+minHeight*epochInSeconds, 0).UTC()
+				midnight := midnightEpochForTs(date.AddDate(0, 0, 1).Unix(), networkConfig.genesisTs)
 
+				// the first day of our range
 				p := ExportPeriod{
 					Date: Date{
 						Year:  date.Year(),
@@ -422,20 +424,37 @@ var app = &cli.App{
 						Day:   date.Day(),
 					},
 					StartHeight: minHeight,
-					EndHeight:   maxHeight,
+					EndHeight:   midnight - 1,
 				}
 
-				em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, shipPath, storageConfig.schemaVersion, allowedTables, c)
-				if err != nil {
-					return fmt.Errorf("failed to create manifest", "error", err, "date", p.Date.String())
-				}
-				if err := processExport(ctx, em, shipPath); err != nil {
-					processExportErrorsCounter.Inc()
-					logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
-					return fmt.Errorf("failed to process export", "error", err)
-				}
+				for {
+					// This forces a ranged export since the original p.Next()
+					// behavior is partitioned by day
+					if maxHeight < p.EndHeight {
+						p.EndHeight = maxHeight
+					}
 
-				return nil
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, shipPath, storageConfig.schemaVersion, allowedTables, c)
+
+					if err != nil {
+						return fmt.Errorf("failed to create manifest, error: %s, date: %s", err, p.Date.String())
+					}
+
+					if err := processExport(ctx, em, shipPath); err != nil {
+						processExportErrorsCounter.Inc()
+						logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
+						return fmt.Errorf("failed to process export: %s", err)
+					}
+
+					exportLastCompletedHeightGauge.Set(float64(p.EndHeight))
+
+					if maxHeight == p.EndHeight {
+						logger.Infof("reached configured maximum height")
+						return nil
+					}
+
+					p = p.Next()
+				}
 			},
 		},
 	},
