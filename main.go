@@ -19,6 +19,8 @@ var version string
 
 const appName = "archiver"
 
+const epochInSeconds = 30
+
 func init() {
 	version = rawVersion
 	if idx := strings.Index(version, "\n"); idx > -1 {
@@ -65,7 +67,7 @@ var app = &cli.App{
 					&cli.Int64Flag{
 						Name:    "max-height",
 						EnvVars: []string{"ARCHIVER_MAX_HEIGHT"},
-						Usage:   "Maximum height that should be exported. If not specified the achiver will continue forever, waiting for the chain to advance.",
+						Usage:   "Maximum height that should be exported. If not specified the archiver will continue forever, waiting for the chain to advance.",
 					},
 					&cli.StringFlag{
 						Name:    "tasks",
@@ -135,7 +137,6 @@ var app = &cli.App{
 						logger.Infof("reached configured maximum height")
 						return nil
 					}
-
 				}
 			},
 		},
@@ -330,6 +331,130 @@ var app = &cli.App{
 					return fmt.Errorf("one or more verification failures found")
 				}
 				return nil
+			},
+		},
+
+		{
+			Name:   "export",
+			Usage:  "Produce epoch-bound archives of Lily data.",
+			Before: configure,
+			Flags: flagSet(
+				loggingFlags,
+				networkFlags,
+				lilyFlags,
+				storageFlags,
+				diagnosticsFlags,
+				[]cli.Flag{
+					&cli.StringFlag{
+						Name:     "ship-path",
+						EnvVars:  []string{"ARCHIVER_SHIP_PATH"},
+						Usage:    "Path used to write verified exports from lily.",
+						Required: true,
+					},
+					&cli.Int64Flag{
+						Name:    "min-height",
+						EnvVars: []string{"ARCHIVER_MIN_HEIGHT"},
+						Usage:   "Minimum height that should be exported. This may be used for nodes that do not have full state history.",
+						Value:   1005360, // TODO: remove default
+					},
+					&cli.Int64Flag{
+						Name:    "max-height",
+						EnvVars: []string{"ARCHIVER_MAX_HEIGHT"},
+						Usage:   "Maximum height that should be exported. If not specified the archiver will continue forever, waiting for the chain to advance.",
+					},
+					&cli.StringFlag{
+						Name:    "tasks",
+						EnvVars: []string{"ARCHIVER_TASKS"},
+						Usage:   "Comma separated list of tasks that are allowed to be processed. Default is all tasks.",
+						Value:   "",
+					},
+					&cli.StringFlag{
+						Name:    "compression",
+						EnvVars: []string{"ARCHIVER_COMPRESSION"},
+						Usage:   "Type of compression to use.",
+						Value:   "gz",
+						Hidden:  true,
+					},
+				},
+			),
+			Action: func(cc *cli.Context) error {
+				ctx := metrics.CtxScope(cc.Context, appName)
+				setupMetrics(ctx)
+
+				tasks := cc.String("tasks")
+				shipPath := cc.String("ship-path")
+				minHeight := cc.Int64("min-height")
+				maxHeight := cc.Int64("max-height")
+
+				// Build list of allowed tables. Could be all tables.
+				var allowedTables []Table
+				if tasks == "" || tasks == "all" {
+					allowedTables = append(allowedTables, TableList...)
+				} else {
+					taskList, err := parseTaskList(cc.String("tasks"))
+					if err != nil {
+						return fmt.Errorf("invalid tasks specified: %v", err)
+					}
+					if len(taskList) == 0 {
+						return fmt.Errorf("invalid tasks specified")
+					}
+					for _, task := range taskList {
+						tables := TablesByTask(task, storageConfig.schemaVersion)
+						allowedTables = append(allowedTables, tables...)
+					}
+				}
+
+				c, ok := CompressionByName[cc.String("compression")]
+				if !ok {
+					return fmt.Errorf("unknown compression %q", cc.String("compression"))
+				}
+
+				if err := verifyShipDependencies(shipPath, c); err != nil {
+					return fmt.Errorf("unable to ship files: %w", err)
+				}
+
+				date := time.Unix(MainnetGenesisTs+minHeight*epochInSeconds, 0).UTC()
+				midnight := midnightEpochForTs(date.AddDate(0, 0, 1).Unix(), networkConfig.genesisTs)
+
+				// the first day of our range
+				p := ExportPeriod{
+					Date: Date{
+						Year:  date.Year(),
+						Month: int(date.Month()),
+						Day:   date.Day(),
+					},
+					StartHeight: minHeight,
+					EndHeight:   midnight - 1,
+				}
+
+				for {
+					// This forces a ranged export since the original p.Next()
+					// behavior is partitioned by day
+					if maxHeight < p.EndHeight {
+						p.EndHeight = maxHeight
+					}
+
+					em, err := manifestForPeriod(ctx, p, networkConfig.name, networkConfig.genesisTs, shipPath, storageConfig.schemaVersion, allowedTables, c)
+
+					if err != nil {
+						return fmt.Errorf("failed to create manifest, error: %s, date: %s", err, p.Date.String())
+					}
+
+					if err := processExport(ctx, em, shipPath); err != nil {
+						processExportErrorsCounter.Inc()
+						logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
+						return fmt.Errorf("failed to process export: %s", err)
+					}
+
+					exportLastCompletedHeightGauge.Set(float64(p.EndHeight))
+
+					if maxHeight == p.EndHeight {
+						logger.Infof("reached configured maximum height")
+						return nil
+					}
+
+					p = p.Next()
+				}
 			},
 		},
 	},
