@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -208,6 +209,7 @@ type ExportFile struct {
 	Compression Compression
 	Shipped     bool // Shipped indicates that the file has been compressed and placed in the shared filesystem
 	Cid         cid.Cid
+	Unique      bool // Ensures that no two files will ever be named the same; see sentinel-archiver#11
 }
 
 // Path returns the path and file name that the export file should be written to.
@@ -218,6 +220,9 @@ func (e *ExportFile) Path() string {
 
 // Filename returns file name that the export file should be written to.
 func (e *ExportFile) Filename() string {
+	if e.Unique {
+		return fmt.Sprintf("%s-%s-%s.%s.%s", e.TableName, e.Date.String(), uuid.New(), e.Format, e.Compression.Extension)
+	}
 	return fmt.Sprintf("%s-%s.%s.%s", e.TableName, e.Date.String(), e.Format, e.Compression.Extension)
 }
 
@@ -357,6 +362,75 @@ func processExport(ctx context.Context, em *ExportManifest, shipPath string) err
 
 		files := em.FilesForTask(task)
 		for _, ef := range files {
+			if !ef.Shipped {
+				if err := shipExportFile(ctx, ef, wi, shipPath); err != nil {
+					shipTableErrorsCounter.Inc()
+					shipFailure = true
+					ll.Errorw("failed to ship export file", "error", err)
+					continue
+				}
+
+				if err := removeExportFile(ctx, ef, wi); err != nil {
+					ll.Errorw("failed to remove export file", "error", err, "file", wi.WalkFile(ef.TableName))
+				}
+			}
+		}
+	}
+
+	if shipFailure {
+		return fmt.Errorf("failed to ship one or more export files")
+	}
+
+	return nil
+}
+
+func processRangedExport(ctx context.Context, em *ExportManifest, shipPath string) error {
+	ll := logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
+
+	for _, f := range em.Files {
+		// since we want to ensure uniqueness in ranged exports
+		// and not overwrite existing or ignore existing exports,
+		// this should be false; see sentinel-archiver#11
+		f.Shipped = false
+	}
+
+	exportStartHeightGauge.Set(float64(em.Period.EndHeight))
+	ll.Info("preparing to export files for shipping")
+
+	if err := WaitUntil(ctx, lilyIsSyncedToEpoch(lilyConfig.apiAddr, lilyConfig.apiToken, em, ll), 0, time.Minute*10); err != nil {
+		return fmt.Errorf("failed waiting for lily to sync to required epoch: %w", err)
+	}
+
+	processExportStartedCounter.Inc()
+	processExportInProgressGauge.Set(1)
+	defer func() {
+		processExportInProgressGauge.Set(0)
+	}()
+
+	var wi WalkInfo
+	if err := WaitUntil(ctx, walkIsCompleted(lilyConfig.apiAddr, lilyConfig.apiToken, em, &wi, ll), 0, time.Second*30); err != nil {
+		return fmt.Errorf("failed performing walk: %w", err)
+	}
+
+	ll.Info("export complete")
+	report, err := verifyTasks(ctx, wi, tasksForManifest(em))
+	if err != nil {
+		return fmt.Errorf("failed to verify export files: %w", err)
+	}
+
+	shipFailure := false
+	for task, ts := range report.TaskStatus {
+		if !ts.IsOK() {
+			verifyTableErrorsCounter.Inc()
+			shipFailure = true
+			continue
+		}
+
+		files := em.FilesForTask(task)
+		for _, ef := range files {
+			// ensure that there will be different files
+			// see sentinel-archiver#11
+			ef.Unique = true
 			if !ef.Shipped {
 				if err := shipExportFile(ctx, ef, wi, shipPath); err != nil {
 					shipTableErrorsCounter.Inc()
