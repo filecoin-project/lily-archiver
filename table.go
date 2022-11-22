@@ -296,6 +296,13 @@ var TableList = []Table{
 		Model:               &verifreg.VerifiedRegistryVerifiedClient{},
 		NetworkVersionRange: AllNetWorkVersions,
 	},
+	{
+		Name:                "vm_messages",
+		Schema:              1,
+		Task:                tasktype.VmMessage,
+		Model:               &messages.VMMessage{},
+		NetworkVersionRange: AllNetWorkVersions,
+	},
 }
 
 var (
