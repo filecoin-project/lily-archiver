@@ -128,7 +128,7 @@ var TableList = []Table{
 		Name:                "id_addresses",
 		Schema:              1,
 		Task:                tasktype.IdAddress,
-		Model:               &init_.IdAddress{},
+		Model:               &init_.IDAddress{},
 		NetworkVersionRange: AllNetWorkVersions,
 	},
 	{
