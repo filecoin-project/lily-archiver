@@ -318,8 +318,8 @@ github.com/fatih/color v1.13.0/go.mod h1:kLAiJbzzSOZDVNGyDpeOxJ47H46qBXwg5ILebYF
 github.com/felixge/httpsnoop v1.0.1/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/filecoin-project/dagstore v0.5.2 h1:Nd6oXdnolbbVhpMpkYT5PJHOjQp4OBSntHpMV5pxj3c=
 github.com/filecoin-project/dagstore v0.5.2/go.mod h1:mdqKzYrRBHf1pRMthYfMv3n37oOw0Tkx7+TxPt240M0=
-github.com/filecoin-project/ffi-stub v0.3.1-0.20220531145743-1e9516467ee4 h1:xddMe5VMXnJpf89dCOrSl5/2ySeoRHshNrgCyxVE/ww=
-github.com/filecoin-project/ffi-stub v0.3.1-0.20220531145743-1e9516467ee4/go.mod h1:xO23qKzAkTvIResDwEhSzx+3OCqaBRkjJlGr6ZkO2x8=
+github.com/filecoin-project/ffi-stub v0.3.1-0.20221125083217-e843ea68587a h1:KdcMm5HjgIpE4dukptZpkoSaQ2VRfVaoNT0awgE/Vco=
+github.com/filecoin-project/ffi-stub v0.3.1-0.20221125083217-e843ea68587a/go.mod h1:xO23qKzAkTvIResDwEhSzx+3OCqaBRkjJlGr6ZkO2x8=
 github.com/filecoin-project/go-address v0.0.3/go.mod h1:jr8JxKsYx+lQlQZmF5i2U0Z+cGQ59wMIps/8YW/lDj8=
 github.com/filecoin-project/go-address v0.0.5/go.mod h1:jr8JxKsYx+lQlQZmF5i2U0Z+cGQ59wMIps/8YW/lDj8=
 github.com/filecoin-project/go-address v0.0.6/go.mod h1:7B0/5DA13n6nHkB8bbGx1gWzG/dbTsZ0fgOJVGsM3TE=

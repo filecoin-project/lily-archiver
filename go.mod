@@ -2,6 +2,11 @@ module github.com/filecoin-project/sentinel-archiver
 
 go 1.17
 
+replace github.com/filecoin-project/filecoin-ffi => github.com/filecoin-project/ffi-stub v0.3.1-0.20221125083217-e843ea68587a
+
+// See https://github.com/ipfs/go-mfs/pull/88
+replace github.com/ipfs/go-mfs => github.com/ipfs/go-mfs v0.1.3-0.20210507195338-96fbfa122164
+
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.0
 	github.com/filecoin-project/go-state-types v0.1.10
@@ -334,8 +339,3 @@ require (
 	lukechampine.com/blake3 v1.1.7 // indirect
 	mellium.im/sasl v0.2.1 // indirect
 )
-
-replace github.com/filecoin-project/filecoin-ffi => github.com/filecoin-project/ffi-stub v0.3.1-0.20220531145743-1e9516467ee4
-
-// See https://github.com/ipfs/go-mfs/pull/88
-replace github.com/ipfs/go-mfs => github.com/ipfs/go-mfs v0.1.3-0.20210507195338-96fbfa122164
