@@ -128,7 +128,7 @@ var TableList = []Table{
 		Name:                "id_addresses",
 		Schema:              1,
 		Task:                tasktype.IdAddress,
-		Model:               &init_.IdAddress{},
+		Model:               &init_.IDAddress{},
 		NetworkVersionRange: AllNetWorkVersions,
 	},
 	{
@@ -294,6 +294,13 @@ var TableList = []Table{
 		Schema:              1,
 		Task:                tasktype.VerifiedRegistryVerifiedClient,
 		Model:               &verifreg.VerifiedRegistryVerifiedClient{},
+		NetworkVersionRange: AllNetWorkVersions,
+	},
+	{
+		Name:                "vm_messages",
+		Schema:              1,
+		Task:                tasktype.VmMessage,
+		Model:               &messages.VMMessage{},
 		NetworkVersionRange: AllNetWorkVersions,
 	},
 }
