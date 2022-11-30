@@ -1,13 +1,13 @@
 SHELL=/usr/bin/env bash
 
 COMMIT := $(shell git rev-parse --short=8 HEAD)
-DOCKER_IMAGE_NAME?=filecoin/sentinel-archiver
+DOCKER_IMAGE_NAME?=filecoin/lily-archiver
 DOCKER_IMAGE_TAG?=$(COMMIT)
 DOCKER_IMAGE_TAG_SUFFIX?=
 
 .PHONY: build
 build:
-	go build $(GOFLAGS) -o sentinel-archiver -mod=readonly .
+	go build $(GOFLAGS) -o lily-archiver -mod=readonly .
 
 .PHONY: test
 test:
