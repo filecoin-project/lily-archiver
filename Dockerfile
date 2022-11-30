@@ -1,4 +1,4 @@
-FROM golang:1.17-buster AS builder
+FROM golang:1.18-buster AS builder
 MAINTAINER Ian Davis <ian.davis@protocol.ai>
 
 ENV SRC_PATH    /build/sentinel-archiver
