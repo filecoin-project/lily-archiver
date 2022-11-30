@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/filecoin-project/lily/model/actors/datacap"
 	"strings"
 
 	"github.com/filecoin-project/go-state-types/network"
@@ -118,6 +119,7 @@ var TableList = []Table{
 		Name:                "data_cap_balance",
 		Schema:              1,
 		Task:                tasktype.DataCapBalance,
+		Model:               &datacap.DataCapBalance{},
 		NetworkVersionRange: FromNetworkVersion17,
 	},
 	{
@@ -235,9 +237,10 @@ var TableList = []Table{
 	// added from nv17
 
 	{
-		Name:                "miner_pre_commit_infos_v9",
+		Name:                "miner_pre_commit_infos",
 		Schema:              1,
 		Task:                tasktype.MinerPreCommitInfo,
+		Model:               &miner.MinerPreCommitInfoV9{},
 		NetworkVersionRange: FromNetworkVersion17,
 	},
 
