@@ -1,6 +1,6 @@
 module github.com/filecoin-project/sentinel-archiver
 
-go 1.17
+go 1.18
 
 replace github.com/filecoin-project/filecoin-ffi => github.com/filecoin-project/ffi-stub v0.3.1-0.20221125083217-e843ea68587a
 
