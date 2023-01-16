@@ -34,6 +34,9 @@ butterflynet: build
 interopnet: GOFLAGS+=-tags=interopnet
 interopnet: build
 
+hyperspacenet: GOFLAGS+=-tags=hyperspacenet
+hyperspacenet: build
+
 .PHONY: docker
 docker:
 	docker build -f Dockerfile \
