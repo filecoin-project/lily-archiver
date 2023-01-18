@@ -3,8 +3,6 @@ name: Docker
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
 jobs:
 
@@ -18,6 +16,9 @@ jobs:
       uses: docker/metadata-action@v3
       with:
         images: filecoin/lily-archiver
+        tags: |
+          type=sha
+          type=raw,value=latest,enable={{is_default_branch}}
 
     - uses: docker/setup-qemu-action@v1
 

@@ -440,7 +440,7 @@ var app = &cli.App{
 						return fmt.Errorf("failed to create manifest, error: %s, date: %s", err, p.Date.String())
 					}
 
-					if err := processExport(ctx, em, shipPath); err != nil {
+					if err := processRangedExport(ctx, em, shipPath); err != nil {
 						processExportErrorsCounter.Inc()
 						logger.With("date", em.Period.Date.String(), "from", em.Period.StartHeight, "to", em.Period.EndHeight)
 						return fmt.Errorf("failed to process export: %s", err)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/filecoin-project/lily/model/actors/datacap"
 	"strings"
 
 	"github.com/filecoin-project/go-state-types/network"
@@ -44,7 +45,11 @@ type NetworkVersionRange struct {
 	To   network.Version
 }
 
-var AllNetWorkVersions = NetworkVersionRange{From: network.Version0, To: network.VersionMax}
+var (
+	AllNetWorkVersions   = NetworkVersionRange{From: network.Version0, To: network.VersionMax}
+	FromNetworkVersion17 = NetworkVersionRange{From: network.Version17, To: network.VersionMax}
+	ToNetworkVersion16   = NetworkVersionRange{From: network.Version0, To: network.Version16}
+)
 
 var TableList = []Table{
 	{
@@ -111,6 +116,13 @@ var TableList = []Table{
 		NetworkVersionRange: AllNetWorkVersions,
 	},
 	{
+		Name:                "data_cap_balance",
+		Schema:              1,
+		Task:                tasktype.DataCapBalance,
+		Model:               &datacap.DataCapBalance{},
+		NetworkVersionRange: FromNetworkVersion17,
+	},
+	{
 		Name:                "derived_gas_outputs",
 		Schema:              1,
 		Task:                tasktype.GasOutputs,
@@ -127,7 +139,7 @@ var TableList = []Table{
 	{
 		Name:                "id_addresses",
 		Schema:              1,
-		Task:                tasktype.IdAddress,
+		Task:                tasktype.IDAddress,
 		Model:               &init_.IDAddress{},
 		NetworkVersionRange: AllNetWorkVersions,
 	},
@@ -173,6 +185,16 @@ var TableList = []Table{
 		Model:               &messages.Message{},
 		NetworkVersionRange: AllNetWorkVersions,
 	},
+
+	// added to miner_info in nv17
+	{
+		Name:                "miner_beneficiary",
+		Schema:              1,
+		Task:                tasktype.MinerBeneficiary,
+		Model:               &miner.MinerBeneficiary{},
+		NetworkVersionRange: FromNetworkVersion17,
+	},
+
 	{
 		Name:                "miner_current_deadline_infos",
 		Schema:              1,
@@ -201,13 +223,27 @@ var TableList = []Table{
 		Model:               &miner.MinerLockedFund{},
 		NetworkVersionRange: AllNetWorkVersions,
 	},
+
+	// up to actors v8/nv16 only, ctx: https://github.com/filecoin-project/lily/issues/1076
+
 	{
 		Name:                "miner_pre_commit_infos",
 		Schema:              1,
 		Task:                tasktype.MinerPreCommitInfo,
 		Model:               &miner.MinerPreCommitInfo{},
-		NetworkVersionRange: AllNetWorkVersions,
+		NetworkVersionRange: ToNetworkVersion16,
 	},
+
+	// added from nv17
+
+	{
+		Name:                "miner_pre_commit_infos",
+		Schema:              1,
+		Task:                tasktype.MinerPreCommitInfo,
+		Model:               &miner.MinerPreCommitInfoV9{},
+		NetworkVersionRange: FromNetworkVersion17,
+	},
+
 	{
 		Name:                "miner_sector_deals",
 		Schema:              1,
@@ -294,12 +330,12 @@ var TableList = []Table{
 		Schema:              1,
 		Task:                tasktype.VerifiedRegistryVerifiedClient,
 		Model:               &verifreg.VerifiedRegistryVerifiedClient{},
-		NetworkVersionRange: AllNetWorkVersions,
+		NetworkVersionRange: ToNetworkVersion16,
 	},
 	{
 		Name:                "vm_messages",
 		Schema:              1,
-		Task:                tasktype.VmMessage,
+		Task:                tasktype.VMMessage,
 		Model:               &messages.VMMessage{},
 		NetworkVersionRange: AllNetWorkVersions,
 	},
