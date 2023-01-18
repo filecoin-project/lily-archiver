@@ -1,4 +1,4 @@
-module github.com/filecoin-project/sentinel-archiver
+module github.com/filecoin-project/lily-archiver
 
 go 1.18
 

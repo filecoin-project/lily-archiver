@@ -1,14 +1,14 @@
-# Sentinel Archiver
-[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/filecoin-project/sentinel-archiver)
+# Lily Archiver
+[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/filecoin-project/lily-archiver)
 
 Produces regular archives of on-chain state for the Filecoin network.
 
-Sentinel Archiver is a component of [**Sentinel**](https://github.com/filecoin-project/sentinel), a collection of services which monitor the health and function of the Filecoin network. 
+Lily Archiver is a component of [**Sentinel**](https://github.com/filecoin-project/sentinel), a collection of services which monitor the health and function of the Filecoin network. 
 
 
 ## Overview
 
-Sentinel Archiver works in conjunction with a [Lily](https://github.com/filecoin-project/lily) node to extract data from the Filecoin network and package it into convenient archives for public reuse.
+Lily Archiver works in conjunction with a [Lily](https://github.com/filecoin-project/lily) node to extract data from the Filecoin network and package it into convenient archives for public reuse.
 
 The data is partitioned into separate **tables** defined by the [Lily schema](https://github.com/filecoin-project/lily/tree/master/schemas).
 Archive files for each table are produced daily, covering a 24 hour period from midnight UTC. 
@@ -29,7 +29,7 @@ Example of file in directory hierarchy: `mainnet/csv/1/messages/2021/messages-20
 
 ## Outline of Operation
 
-Sentinel Archiver needs to be paired with a Lily node which it will use to extract data by running walk jobs.
+Lily Archiver needs to be paired with a Lily node which it will use to extract data by running walk jobs.
 It produces archive files by executing walks against the Lily node, verifying the files produced do not contain errors and then compressing and shipping to the final archive location.
 
 The `run` command starts the archiver as a long running daemon that will attempt to maintain a complete archive of the Filecoin chain.
@@ -94,17 +94,17 @@ Refer to the [Lily project](https://github.com/filecoin-project/lily) for precis
 
 ## Code of Conduct
 
-Sentinel Archiver follows the [Filecoin Project Code of Conduct](https://github.com/filecoin-project/community/blob/master/CODE_OF_CONDUCT.md). Before contributing, please acquaint yourself with our social courtesies and expectations.
+Lily Archiver follows the [Filecoin Project Code of Conduct](https://github.com/filecoin-project/community/blob/master/CODE_OF_CONDUCT.md). Before contributing, please acquaint yourself with our social courtesies and expectations.
 
 
 ## Contributing
 
-Welcoming [new issues](https://github.com/filecoin-project/sentinel-archiver/issues/new) and [pull requests](https://github.com/filecoin-project/sentinel-archiver/pulls).
+Welcoming [new issues](https://github.com/filecoin-project/lily-archiver/issues/new) and [pull requests](https://github.com/filecoin-project/lily-archiver/pulls).
 
 
 ## License
 
-The Filecoin Project and Sentinel Archiver is dual-licensed under Apache 2.0 and MIT terms:
+The Filecoin Project and Lily Archiver is dual-licensed under Apache 2.0 and MIT terms:
 
 - Apache License, Version 2.0, ([LICENSE-APACHE](https://github.com/filecoin-project/sentinel-visor/blob/master/LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
 - MIT license ([LICENSE-MIT](https://github.com/filecoin-project/sentinel-visor/blob/master/LICENSE-MIT) or http://opensource.org/licenses/MIT)

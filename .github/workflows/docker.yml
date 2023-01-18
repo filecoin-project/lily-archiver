@@ -15,7 +15,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v3
       with:
-        images: filecoin/sentinel-archiver
+        images: filecoin/lily-archiver
         tags: |
           type=sha
           type=raw,value=latest,enable={{is_default_branch}}
