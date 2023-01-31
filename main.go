@@ -82,6 +82,12 @@ var app = &cli.App{
 						Value:   "gz",
 						Hidden:  true,
 					},
+					&cli.BoolFlag{
+						Name:    "run-at-min-height",
+						EnvVars: []string{"ARCHIVER_RUN_AT_MIN_HEIGHT"},
+						Usage:   "Toggle to run the job at min-height and not at the next export period, i.e. the next day.",
+						Value:   false,
+					},
 				},
 			),
 			Action: func(cc *cli.Context) error {
@@ -92,6 +98,7 @@ var app = &cli.App{
 				shipPath := cc.String("ship-path")
 				minHeight := cc.Int64("min-height")
 				maxHeight := cc.Int64("max-height")
+				runAtMinHeight := cc.Bool("run-at-min-height")
 
 				// Build list of allowed tables. Could be all tables.
 				var allowedTables []Table
@@ -124,7 +131,14 @@ var app = &cli.App{
 					return fmt.Errorf("unable to ensure ancillary files exist: %w", err)
 				}
 
-				p := firstExportPeriodAfter(minHeight, networkConfig.genesisTs)
+				var p ExportPeriod
+
+				if runAtMinHeight {
+					p = exportPeriodAt(minHeight, networkConfig.genesisTs)
+				} else {
+					p = firstExportPeriodAfter(minHeight, networkConfig.genesisTs)
+				}
+
 				for {
 					// Retry this export until it works
 					if err := WaitUntil(ctx, exportIsProcessed(p, allowedTables, c, shipPath), 0, time.Minute*15); err != nil {
@@ -413,19 +427,7 @@ var app = &cli.App{
 					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
-				date := time.Unix(networkConfig.genesisTs+minHeight*epochInSeconds, 0).UTC()
-				midnight := midnightEpochForTs(date.AddDate(0, 0, 1).Unix(), networkConfig.genesisTs)
-
-				// the first day of our range
-				p := ExportPeriod{
-					Date: Date{
-						Year:  date.Year(),
-						Month: int(date.Month()),
-						Day:   date.Day(),
-					},
-					StartHeight: minHeight,
-					EndHeight:   midnight - 1,
-				}
+				p := exportPeriodAt(minHeight, networkConfig.genesisTs)
 
 				for {
 					// This forces a ranged export since the original p.Next()

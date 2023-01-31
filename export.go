@@ -193,6 +193,24 @@ func firstExportPeriodAfter(minHeight int64, genesisTs int64) ExportPeriod {
 	return p
 }
 
+func exportPeriodAt(minHeight int64, genesisTs int64) ExportPeriod {
+	date := time.Unix(genesisTs+minHeight*epochInSeconds, 0).UTC()
+	midnight := midnightEpochForTs(date.AddDate(0, 0, 1).Unix(), networkConfig.genesisTs)
+
+	// the first day of our range
+	p := ExportPeriod{
+		Date: Date{
+			Year:  date.Year(),
+			Month: int(date.Month()),
+			Day:   date.Day(),
+		},
+		StartHeight: minHeight,
+		EndHeight:   midnight - 1,
+	}
+
+	return p
+}
+
 // Returns the height at midnight UTC (the start of the day) on the given date
 func midnightEpochForTs(ts int64, genesisTs int64) int64 {
 	t := time.Unix(ts, 0).UTC()
