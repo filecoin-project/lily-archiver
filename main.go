@@ -413,7 +413,7 @@ var app = &cli.App{
 					return fmt.Errorf("unable to ship files: %w", err)
 				}
 
-				date := time.Unix(MainnetGenesisTs+minHeight*epochInSeconds, 0).UTC()
+				date := time.Unix(networkConfig.genesisTs+minHeight*epochInSeconds, 0).UTC()
 				midnight := midnightEpochForTs(date.AddDate(0, 0, 1).Unix(), networkConfig.genesisTs)
 
 				// the first day of our range
