@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/filecoin-project/lily/model/actors/datacap"
 	"strings"
+
+	"github.com/filecoin-project/lily/model/actors/datacap"
 
 	"github.com/filecoin-project/go-state-types/network"
 	"github.com/filecoin-project/lily/chain/indexer/tasktype"
