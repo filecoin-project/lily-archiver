@@ -14,24 +14,6 @@ import (
 	"github.com/filecoin-project/lily/model/visor"
 )
 
-func verifyExport(ctx context.Context, em *ExportManifest, wi WalkInfo, shipPath string) (*VerificationReport, error) {
-	tasks := make(map[string]struct{}, 0)
-	for _, ef := range em.Files {
-		t, ok := TablesByName[ef.TableName]
-		if !ok {
-			return nil, fmt.Errorf("unknown table %q", ef.TableName)
-		}
-		tasks[t.Task] = struct{}{}
-	}
-
-	tasklist := make([]string, 0, len(tasks))
-	for task := range tasks {
-		tasklist = append(tasklist, task)
-	}
-
-	return verifyTasks(ctx, wi, tasklist)
-}
-
 func verifyTasks(ctx context.Context, wi WalkInfo, tasks []string) (*VerificationReport, error) {
 	consensusPath := wi.WalkFile("chain_consensus")
 	logger.Debugw("reading chain_consensus export", "export_file", consensusPath)
