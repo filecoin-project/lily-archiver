@@ -31,21 +31,6 @@ type ExportManifest struct {
 	Files   []*ExportFile
 }
 
-func manifestForDate(ctx context.Context, d Date, network string, genesisTs int64, shipPath string, schemaVersion int, allowedTables []Table, compression Compression) (*ExportManifest, error) {
-	p := firstExportPeriod(genesisTs)
-
-	if p.Date.After(d) {
-		return nil, fmt.Errorf("date is before genesis: %s", d.String())
-	}
-
-	// Iteration here guarantees we are always consistent with height ranges
-	for p.Date != d {
-		p = p.Next()
-	}
-
-	return manifestForPeriod(ctx, p, network, genesisTs, shipPath, schemaVersion, allowedTables, compression)
-}
-
 func manifestForPeriod(ctx context.Context, p ExportPeriod, network string, genesisTs int64, shipPath string, schemaVersion int, allowedTables []Table, compression Compression) (*ExportManifest, error) {
 	em := &ExportManifest{
 		Period:  p,
@@ -712,17 +697,6 @@ func touchExportFiles(ctx context.Context, em *ExportManifest, wi WalkInfo) erro
 			return fmt.Errorf("open file: %w", err)
 		}
 		f.Close()
-	}
-
-	return nil
-}
-
-func removeExportFiles(ctx context.Context, files []*ExportFile, wi WalkInfo) error {
-	for _, ef := range files {
-		walkFile := wi.WalkFile(ef.TableName)
-		if err := os.Remove(walkFile); err != nil {
-			logger.Errorf("failed to remove file %s: %w", walkFile, err)
-		}
 	}
 
 	return nil

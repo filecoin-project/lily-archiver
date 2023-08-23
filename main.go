@@ -298,7 +298,12 @@ var app = &cli.App{
 
 				reportFailed := false
 				for _, table := range tables {
-					t, _ := TablesByName[table]
+					t, ok := TablesByName[table]
+					if !ok {
+						fmt.Printf("%s: unknown table\n", table)
+						reportFailed = true
+						continue
+					}
 					status, ok := rep.TaskStatus[t.Task]
 					if !ok {
 						fmt.Printf("%s: verification failed, no further information\n", table)
