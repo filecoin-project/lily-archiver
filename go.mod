@@ -2,7 +2,6 @@ module github.com/filecoin-project/lily-archiver
 
 go 1.21
 
-
 replace github.com/filecoin-project/filecoin-ffi => github.com/filecoin-project/ffi-stub v0.3.1-0.20221125083217-e843ea68587a
 
 // See https://github.com/ipfs/go-mfs/pull/88
