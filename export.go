@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lily/commands"
